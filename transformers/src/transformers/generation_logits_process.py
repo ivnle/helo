@@ -692,3 +692,93 @@ class LogitNormalization(LogitsProcessor, LogitsWarper):
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         scores = scores.log_softmax(dim=-1)
         return scores
+
+class AStarSearch(LogitsProcessor):
+    r"""
+    TODO The problem with this implementation is that it "pollutes" the scores with the heuristic values.
+    The polluted scores are saved as part of the "true score". A-star should take the heuristic into account 
+    when choosing one token but the heurstic is discarded when saving the score.
+    """
+
+    def __init__(self, model, encoder_input_ids, target_utterance):
+        self.model = model
+        self.encoder_input_ids = encoder_input_ids        
+        self.target_utterance = target_utterance
+        self.top_k = 20
+        self.strength = 3
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        # input_ids [bm_sz, seq_len]
+        # scores [bm_sz, vocab_size], already normalized in `beam_search`
+        beam_size = input_ids.shape[0]
+        vocab_size = scores.shape[-1]
+
+        # print("input_ids", input_ids.shape)
+        # print("scores", scores.shape)
+        # foo
+
+        # Get the top k indices
+        top_logits, top_indices = torch.topk(input=scores, k=self.top_k, dim=-1) # [bsz, top_k]
+        # assert(top_logits.shape == (batch_size, self.top_k))
+        # assert(top_indices.shape == (batch_size, self.top_k))
+
+        # Make sure non-top-k tokens are set to -Inf
+        scores = scores.fill_(-float("Inf"))
+        scores = scores.scatter(1, top_indices, top_logits)
+
+        # Normalize
+        lsm = torch.nn.LogSoftmax(dim=-1)
+        scores = lsm(scores)
+
+        # Build inputs for conditioning model
+        input_ids = input_ids.unsqueeze(1).expand(-1, self.top_k, -1) # [beam_size, top_k, seq_len]
+        # next_action = torch.arange(vocab_size, device=input_ids.device).unsqueeze(0).t()
+        # next_action = next_action.unsqueeze(0).expand(beam_size, -1, -1) # [beam_size, vocab_size, 1]
+        input_ids = torch.cat([input_ids, top_indices.unsqueeze(2)], dim=-1) # [beam_size, top_k, seq_len+1]        
+
+        # # Build inputs for conditioning model
+        # input_ids = input_ids.unsqueeze(1).expand(-1, vocab_size, -1) # [beam_size, vocab_size, seq_len]
+        # next_action = torch.arange(vocab_size, device=input_ids.device).unsqueeze(0).t()
+        # next_action = next_action.unsqueeze(0).expand(beam_size, -1, -1) # [beam_size, vocab_size, 1]
+        # input_ids = torch.cat([input_ids, next_action], dim=-1) # [beam_size, vocab_size, seq_len+1]        
+        
+        for i in range(beam_size):
+            beam_i = input_ids[i, :, :] # [vocab_size, seq_len+1]
+            # print('beam_i:', beam_i)
+            # for j in tqdm(range(vocab_size)):
+            for j in range(self.top_k):
+                beam_ij = beam_i[j, :].unsqueeze(0)
+                # print(beam_ij)
+                # foo
+                greedy_output = self.model.generate(input_ids=self.encoder_input_ids, 
+                                                    decoder_input_ids=beam_ij,
+                                                    do_astar=False,
+                                                    num_beams=1,
+                                                    do_sample=False,
+                                                    )
+                # greedy_output [1, seq_len]
+                encoder_input_ids_cont = torch.cat([self.encoder_input_ids, greedy_output], dim=-1)
+                # Truncate to max model length
+                encoder_input_ids_cont = encoder_input_ids_cont[:, -128:]
+
+                # Get log probability of target_utterance under self.model
+                output = self.model(input_ids=encoder_input_ids_cont, 
+                                    labels=self.target_utterance,
+                                    ) 
+                neg_log_like = output['loss']
+                # print(output.keys())
+                # print(output['loss'])
+                # print(scores[i, :].exp().sum())
+                # print(scores[i, :])
+                # print(encoder_input_ids_cont)
+                # print(top_indices[i,j])
+                # print('BEFORE', scores[i, top_indices[i,j]])
+                scores[i, top_indices[i,j]] -= neg_log_like * self.strength
+                # print('AFTER', scores[i, top_indices[i,j]])
+                # print(scores)
+                # foo
+                # print(scores[i, j])
+                # print(scores[i, :])
+            # print('beam_i_updated:', beam_i)
+        
+        return scores

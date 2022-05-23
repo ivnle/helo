@@ -26,6 +26,7 @@ from torch import nn
 from .generation_beam_constraints import Constraint, DisjunctiveConstraint, PhrasalConstraint
 from .generation_beam_search import BeamScorer, BeamSearchScorer, ConstrainedBeamSearchScorer
 from .generation_logits_process import (
+    AStarSearch,
     EncoderNoRepeatNGramLogitsProcessor,
     ExponentialDecayLengthPenalty,
     ForcedBOSTokenLogitsProcessor,
@@ -883,6 +884,8 @@ class GenerationMixin:
         remove_invalid_values: Optional[bool] = None,
         synced_gpus: Optional[bool] = False,
         exponential_decay_length_penalty: Optional[Tuple[Union[int, float]]] = None,
+        do_astar=None,
+        target_utterance=None,
         **model_kwargs,
     ) -> Union[GreedySearchOutput, SampleOutput, BeamSearchOutput, BeamSampleOutput, torch.LongTensor]:
         r"""
@@ -1264,6 +1267,14 @@ class GenerationMixin:
             renormalize_logits=renormalize_logits,
         )
 
+        # 8.5. Prepare A star processor
+        astar_processor = None
+        if do_astar:
+            astar_processor = AStarSearch(model=self, 
+                                        encoder_input_ids=inputs_tensor, 
+                                        target_utterance=target_utterance,
+                                        )
+
         # 8. prepare stopping criteria
         stopping_criteria = self._get_stopping_criteria(
             max_length=max_length, max_time=max_time, stopping_criteria=stopping_criteria
@@ -1353,6 +1364,7 @@ class GenerationMixin:
                 output_scores=output_scores,
                 return_dict_in_generate=return_dict_in_generate,
                 synced_gpus=synced_gpus,
+                astar_processor=astar_processor,
                 **model_kwargs,
             )
 
@@ -2025,6 +2037,7 @@ class GenerationMixin:
         output_scores: Optional[bool] = None,
         return_dict_in_generate: Optional[bool] = None,
         synced_gpus: Optional[bool] = False,
+        astar_processor = None,
         **model_kwargs,
     ) -> Union[BeamSearchOutput, torch.LongTensor]:
         r"""
@@ -2234,13 +2247,35 @@ class GenerationMixin:
                         else (outputs.hidden_states,)
                     )
 
+            
+            """
+            Take top-k of next_token_scores but add heuristic first
+            Save a copy of the original next_token_scores so we can use the indices of the top-k tokens to select the original probabilities
+            This ensures the saved scores are not polluted by the heuristic but the heuristic still affects the top-k results
+
+            """
+            # Save copy of score-so-far i.e. no heuristic added
+            old_next_token_scores = next_token_scores.clone()
+            
+            # Compute and add heuristic to score-so-far
+            if astar_processor is not None:
+                next_token_scores = astar_processor(input_ids, next_token_scores)
+
             # reshape for beam search
             vocab_size = next_token_scores.shape[-1]
             next_token_scores = next_token_scores.view(batch_size, num_beams * vocab_size)
+            old_next_token_scores = old_next_token_scores.view(batch_size, num_beams * vocab_size)
 
             next_token_scores, next_tokens = torch.topk(
                 next_token_scores, 2 * num_beams, dim=1, largest=True, sorted=True
             )
+
+            # TODO
+            # use next_tokens to select scores from old_next_token_scores
+            # this gets rid of the heuristic when we save the scores for the next step
+            
+            # Reset score
+            next_token_scores = old_next_token_scores.gather(1, next_tokens)
 
             next_indices = torch_int_div(next_tokens, vocab_size)
             next_tokens = next_tokens % vocab_size
