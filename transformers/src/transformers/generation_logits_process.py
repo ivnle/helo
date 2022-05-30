@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .models.auto import AutoTokenizer
 import inspect
 import math
 from typing import Callable, Iterable, List, Optional, Tuple
@@ -704,37 +705,32 @@ class AStarSearch(LogitsProcessor):
         self.model = model
         self.encoder_input_ids = encoder_input_ids        
         self.target_utterance = target_utterance
-        self.top_k = 20
-        self.strength = 3
+        self.top_k = 40
+        self.strength = 10
+
+        # For debugging
+        mname = "facebook/blenderbot-400M-distill"
+        self.tokenizer = AutoTokenizer.from_pretrained(mname)
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        # input_ids [bm_sz, seq_len]
-        # scores [bm_sz, vocab_size], already normalized in `beam_search`
+        # input_ids [bm_sz, seq_so_far]
+        # scores [bm_sz, vocab_sz], already normalized in `beam_search` function which calls the function we are in
         beam_size = input_ids.shape[0]
         vocab_size = scores.shape[-1]
 
-        # print("input_ids", input_ids.shape)
-        # print("scores", scores.shape)
-        # foo
-
-        # Get the top k indices
-        top_logits, top_indices = torch.topk(input=scores, k=self.top_k, dim=-1) # [bsz, top_k]
-        # assert(top_logits.shape == (batch_size, self.top_k))
-        # assert(top_indices.shape == (batch_size, self.top_k))
-
-        # Make sure non-top-k tokens are set to -Inf
+        # Only consider the top k indices of each beam for computational efficiency
+        top_logits, top_indices = torch.topk(input=scores, k=self.top_k, dim=-1) # [bm_sz, top_k])
         scores = scores.fill_(-float("Inf"))
-        scores = scores.scatter(1, top_indices, top_logits)
+        scores = scores.scatter(1, top_indices, top_logits) # [bm_sz, vocab_sz]
 
-        # Normalize
-        lsm = torch.nn.LogSoftmax(dim=-1)
-        scores = lsm(scores)
+        # Note: Do not normalize `scores`. Will produce garbage output because some beams are initialized
+        # with 1e-9. Normalizing a beam with all 1e-9 results in big numbers relative to the beam that
+        # was initialized with normal scores.        
 
-        # Build inputs for conditioning model
-        input_ids = input_ids.unsqueeze(1).expand(-1, self.top_k, -1) # [beam_size, top_k, seq_len]
-        # next_action = torch.arange(vocab_size, device=input_ids.device).unsqueeze(0).t()
-        # next_action = next_action.unsqueeze(0).expand(beam_size, -1, -1) # [beam_size, vocab_size, 1]
-        input_ids = torch.cat([input_ids, top_indices.unsqueeze(2)], dim=-1) # [beam_size, top_k, seq_len+1]        
+        # Extend sequence so far with potential next tokens
+        input_ids = input_ids.unsqueeze(1).expand(-1, self.top_k, -1) # [bmsz, top_k, seq_so_far]
+        potential_next_tokens = top_indices.unsqueeze(2) # [bmsz, top_k, 1]
+        input_ids = torch.cat([input_ids, potential_next_tokens], dim=-1) # [bmsz, top_k, seq_so_far+1]        
 
         # # Build inputs for conditioning model
         # input_ids = input_ids.unsqueeze(1).expand(-1, vocab_size, -1) # [beam_size, vocab_size, seq_len]
@@ -742,43 +738,93 @@ class AStarSearch(LogitsProcessor):
         # next_action = next_action.unsqueeze(0).expand(beam_size, -1, -1) # [beam_size, vocab_size, 1]
         # input_ids = torch.cat([input_ids, next_action], dim=-1) # [beam_size, vocab_size, seq_len+1]        
         
-        for i in range(beam_size):
-            beam_i = input_ids[i, :, :] # [vocab_size, seq_len+1]
-            # print('beam_i:', beam_i)
-            # for j in tqdm(range(vocab_size)):
-            for j in range(self.top_k):
-                beam_ij = beam_i[j, :].unsqueeze(0)
-                # print(beam_ij)
-                # foo
-                greedy_output = self.model.generate(input_ids=self.encoder_input_ids, 
-                                                    decoder_input_ids=beam_ij,
-                                                    do_astar=False,
-                                                    num_beams=1,
-                                                    do_sample=False,
-                                                    )
-                # greedy_output [1, seq_len]
-                encoder_input_ids_cont = torch.cat([self.encoder_input_ids, greedy_output], dim=-1)
-                # Truncate to max model length
-                encoder_input_ids_cont = encoder_input_ids_cont[:, -128:]
+        # for i in range(beam_size):
+        #     beam_i = input_ids[i, :, :] # [vocab_size, seq_len+1]
+        #     # print('beam_i:', beam_i)
+        #     # for j in tqdm(range(vocab_size)):
+        #     for j in range(self.top_k):
+        #         beam_ij = beam_i[j, :].unsqueeze(0)
+        #         # print(f'beam {i}', beam_ij, '  score:', scores[i, top_indices[i,j]])
+        #         # print(beam_ij)
+        #         # foo
+        #         greedy_output = self.model.generate(input_ids=self.encoder_input_ids, 
+        #                                             decoder_input_ids=beam_ij,
+        #                                             do_astar=False,
+        #                                             num_beams=1,
+        #                                             do_sample=False,
+        #                                             )
+        #         # greedy_output [1, seq_len]
+        #         encoder_input_ids_cont = torch.cat([self.encoder_input_ids, greedy_output], dim=-1)
+        #         # Truncate to max model length
+        #         encoder_input_ids_cont = encoder_input_ids_cont[:, -128:]
 
-                # Get log probability of target_utterance under self.model
-                output = self.model(input_ids=encoder_input_ids_cont, 
-                                    labels=self.target_utterance,
-                                    ) 
-                neg_log_like = output['loss']
-                # print(output.keys())
-                # print(output['loss'])
-                # print(scores[i, :].exp().sum())
-                # print(scores[i, :])
-                # print(encoder_input_ids_cont)
-                # print(top_indices[i,j])
-                # print('BEFORE', scores[i, top_indices[i,j]])
-                scores[i, top_indices[i,j]] -= neg_log_like * self.strength
-                # print('AFTER', scores[i, top_indices[i,j]])
-                # print(scores)
-                # foo
-                # print(scores[i, j])
-                # print(scores[i, :])
-            # print('beam_i_updated:', beam_i)
+        #         # Get log probability of target_utterance under self.model
+        #         output = self.model(input_ids=encoder_input_ids_cont, 
+        #                             labels=self.target_utterance,
+        #                             ) 
+        #         neg_log_like = output['loss']
+        #         # print(output.keys())
+        #         # print(output['loss'])
+        #         # print(scores[i, :].exp().sum())
+        #         # print(scores[i, :])
+        #         # print(encoder_input_ids_cont)
+        #         # print(top_indices[i,j])
+        #         # print('BEFORE', scores[i, top_indices[i,j]])
+        #         scores[i, top_indices[i,j]] -= neg_log_like * self.strength
+        #         # print('AFTER', scores[i, top_indices[i,j]])
+        #         # print(scores)
+        #         # foo
+        #         # print(scores[i, j])
+        #         # print(scores[i, :])
+        #     # print('beam_i_updated:', beam_i)
+
+        # batched version of above
+
+        # Greedy lookahead
+        input_ids = input_ids.view(beam_size * self.top_k, -1) # [bmsz*top_k, seq_so_far+1]
+        encoder_input_ids = self.encoder_input_ids.expand(beam_size * self.top_k, -1) # [bmsz*top_k, enc_seq_len]
+        greedy_output = self.model.generate(input_ids=encoder_input_ids, 
+                                            decoder_input_ids=input_ids,
+                                            do_astar=False,
+                                            num_beams=1,
+                                            do_sample=False,
+                                            ) # [bmsz*top_k, gen_seq_len]
+
+        # Extend dialogue history with greedy lookahead generations
+        encoder_input_ids_cont = torch.cat([encoder_input_ids, greedy_output], dim=-1) # [bmsz*top_k, enc_seq_len+la_seq_len]
+
+        # Truncate dialogue history to max model length
+        encoder_input_ids_cont = encoder_input_ids_cont[:, -128:]
+
+        # Set attention weights to zero for pad tokens
+        pad_indices = encoder_input_ids_cont.eq(0).nonzero()        
+        attention_mask = torch.ones(size=encoder_input_ids_cont.shape, device=encoder_input_ids_cont.device)
+        attention_mask[pad_indices[:, 0], pad_indices[:, 1]] = 0
+        
+        # Compute loss
+        target_utterance = self.target_utterance.expand(beam_size * self.top_k, -1) # [bmsz*top_k, tgt_seq_len]
+        output = self.model(input_ids=encoder_input_ids_cont, 
+                            attention_mask=attention_mask,
+                            labels=target_utterance.contiguous(),
+                            return_dict=True,
+                            ) 
+        # lm_logits = output['lm_logits']
+        # loss_fct = torch.nn.CrossEntropyLoss(reduction='none')
+        # labels = labels=target_utterance.contiguous(),
+        # masked_lm_loss = loss_fct(lm_logits.view(-1, self.config.vocab_size), labels.view(-1))
+        # neg_log_like = masked_lm_loss # [bmsz*top_k*seq_len] 
+        neg_log_like = output['loss'] # [bmsz*top_k*tgt_seq_len] 
+
+        neg_log_like = neg_log_like.reshape(beam_size, self.top_k, self.target_utterance.shape[-1]) # [bmsz, top_k, tgt_seq_len]
+        # take average of last dim
+        neg_log_like = neg_log_like.mean(dim=-1) # [bmsz, top_k] # TODO sanity check if these are the right scores
+        log_like = -neg_log_like * self.strength
+        # print(neg_log_like)
+        # print(neg_log_like.shape)
+
+        # print(scores)
+        scores = scores.scatter_add(1, top_indices, log_like) # -= neg_log_like * self.strength
+        # print(scores)
+        
         
         return scores

@@ -2269,11 +2269,6 @@ class GenerationMixin:
             next_token_scores, next_tokens = torch.topk(
                 next_token_scores, 2 * num_beams, dim=1, largest=True, sorted=True
             )
-
-            # TODO
-            # use next_tokens to select scores from old_next_token_scores
-            # this gets rid of the heuristic when we save the scores for the next step
-            
             # Reset score
             next_token_scores = old_next_token_scores.gather(1, next_tokens)
 
