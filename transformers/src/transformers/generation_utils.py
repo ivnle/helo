@@ -1118,6 +1118,9 @@ class GenerationMixin:
         >>> tokenizer.batch_decode(outputs, skip_special_tokens=True)
         ['Paris ist eines der dichtesten besiedelten Gebiete Europas.']
         ```"""
+        astar_strength = model_kwargs.pop('astar_strength', None)
+        astar_top_k = model_kwargs.pop('astar_top_k', None)
+        
         # 1. Set generation parameters if not already defined
         bos_token_id = bos_token_id if bos_token_id is not None else self.config.bos_token_id
         num_beams = num_beams if num_beams is not None else self.config.num_beams
@@ -1273,6 +1276,8 @@ class GenerationMixin:
             astar_processor = AStarSearch(model=self, 
                                         encoder_input_ids=inputs_tensor, 
                                         target_utterance=target_utterance,
+                                        astar_strength=astar_strength,
+                                        astar_top_k=astar_top_k,
                                         )
 
         # 8. prepare stopping criteria

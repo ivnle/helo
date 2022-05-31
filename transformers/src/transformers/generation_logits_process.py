@@ -701,12 +701,12 @@ class AStarSearch(LogitsProcessor):
     when choosing one token but the heurstic is discarded when saving the score.
     """
 
-    def __init__(self, model, encoder_input_ids, target_utterance):
+    def __init__(self, model, encoder_input_ids, target_utterance, astar_strength, astar_top_k):
         self.model = model
         self.encoder_input_ids = encoder_input_ids        
         self.target_utterance = target_utterance
-        self.top_k = 40
-        self.strength = 10
+        self.top_k = astar_top_k
+        self.strength = astar_strength
 
         # For debugging
         mname = "facebook/blenderbot-400M-distill"
@@ -803,11 +803,12 @@ class AStarSearch(LogitsProcessor):
         
         # Compute loss
         target_utterance = self.target_utterance.expand(beam_size * self.top_k, -1) # [bmsz*top_k, tgt_seq_len]
-        output = self.model(input_ids=encoder_input_ids_cont, 
-                            attention_mask=attention_mask,
-                            labels=target_utterance.contiguous(),
-                            return_dict=True,
-                            ) 
+        with torch.no_grad():
+            output = self.model(input_ids=encoder_input_ids_cont, 
+                                attention_mask=attention_mask,
+                                labels=target_utterance.contiguous(),
+                                return_dict=True,
+                                ) 
         # lm_logits = output['lm_logits']
         # loss_fct = torch.nn.CrossEntropyLoss(reduction='none')
         # labels = labels=target_utterance.contiguous(),
