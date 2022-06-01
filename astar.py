@@ -22,11 +22,15 @@ class Arguments:
     model: str = field(default=None, metadata={"help": "Model to use."})
     dataset: str = field(default=None, metadata={"help": "Dataset to use."})
     split: str = field(default=None, metadata={"help": "Split to use."})
+    do_astar: bool = field(default=True, metadata={"help": "Do A* or not."})
     astar_strength: int = field(default=None, metadata={
                                 "help": "Strength of heuristic."})
     astar_top_k: int = field(default=None, metadata={"help": "Top k to use."})
     output_dir: str = field(default=None, metadata={
-                            "help": "Output directory."})
+                            "help": "Output directory."})    
+    max_samples: int = field(default=None, metadata={"help": "Max samples to use."})
+    start_idx: int = field(default=0, metadata={"help": "Start index."})
+    do_prompt: bool = field(default=False, metadata={"help": "Do prompt or not."})
     # trunk_dir: str = field(default=None, metadata={
     #                        "help": "Trunk directory for large files."})
 
@@ -127,11 +131,16 @@ def main():
     if args.debug:
         dataset = dataset.select(range(0, 2))
         args.astar_top_k = 5
-
+    elif args.max_samples is not None:
+        dataset = dataset.select(range(args.start_idx, args.start_idx + args.max_samples))
+    
     fp = os.path.join(args.output_dir, "gen")
-    fp += f"_split{args.split}"
-    fp += f"_strength{args.astar_strength}"
-    fp += f"_topk{args.astar_top_k}"
+    fp += f"_astar" if args.do_astar else "_beam"
+    fp += f"_do-prompt" if args.do_prompt else ""
+    fp += f"_split-{args.split}"
+    fp += f"_samples{args.max_samples}"
+    fp += f"_strength{args.astar_strength}" if (args.astar_strength is not None) else ""
+    fp += f"_topk{args.astar_top_k}" if (args.astar_top_k is not None) else ""
     fp += f"_seed{args.seed}"
     fp += f"_debug" if args.debug else ""
     fp += '.jsonl'
@@ -145,7 +154,7 @@ def main():
     # target_utts = []
     # middle_utts = []
     # gold_utts = []
-
+    
     for _, sample in enumerate(tqdm(dataset)):
         source_utt = sample['first_utt']
         target_utt = sample['last_utt']
@@ -155,16 +164,23 @@ def main():
         logger.debug(f"Target: {target_utt}")
         logger.debug(f"Conv len: {conv_len}")
 
+        # if args.do_prompt:
+        #     target_utt += SEP_TOK
+        target = tokenizer([target_utt], return_tensors="pt").to(
+            args.device).input_ids
+
         conv_so_far = []
         conv_so_far.append(source_utt)
 
-        target = tokenizer([target_utt], return_tensors="pt").to(
-            args.device).input_ids
         for i in range(conv_len):
 
             conv_so_far_str = SEP_TOK.join(conv_so_far)
             inputs = tokenizer([conv_so_far_str], truncation=True, return_tensors="pt").to(
                 args.device).input_ids
+
+            if args.do_prompt:
+                truncate_to = -(128 - target.shape[-1])
+                inputs = torch.cat((target, inputs[:, truncate_to:]), -1)
 
             logger.debug(
                 f"History {i}: {repr(tokenizer.batch_decode(inputs, skip_special_tokens=False)[0])}")
@@ -172,7 +188,7 @@ def main():
             reply_ids = model.generate(input_ids=inputs,
                                        # decoder_input_ids=decoder_input_ids,
                                        num_beams=3,
-                                       do_astar=True,
+                                       do_astar=args.do_astar,
                                        target_utterance=target,
                                        astar_strength=args.astar_strength,
                                        astar_top_k=args.astar_top_k,
