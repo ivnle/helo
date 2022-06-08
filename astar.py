@@ -32,6 +32,7 @@ class Arguments:
                             "help": "Output directory."})    
     max_samples: int = field(default=None, metadata={"help": "Max samples to use."})
     start_idx: int = field(default=0, metadata={"help": "Start index."})    
+    delimiter: str = field(default='tab', metadata={"help": "Delimiter to use. Choices = [tab, raw]"})
     # trunk_dir: str = field(default=None, metadata={
     #                        "help": "Trunk directory for large files."})
 
@@ -129,15 +130,19 @@ def main():
 
     dataset = dataset[args.split]
 
+    # Default debug settings
     if args.debug:
         dataset = dataset.select(range(0, 2)) if args.start_idx is None else dataset.select(range(args.start_idx, args.start_idx + 2))
         args.astar_top_k = 5 if (args.astar_top_k is None) else args.astar_top_k
+        args.output_dir = 'debug'
     elif args.max_samples is not None:
         dataset = dataset.select(range(args.start_idx, args.start_idx + args.max_samples))
     
+    # Move this file path making stuff into a function
     fp = os.path.join(args.output_dir, "gen")
     fp += f"_astar" if args.do_astar else "_beam"
     fp += f"_do-prompt" if args.do_prompt else ""
+    fp += f"_delimit-{args.delimiter}"
     fp += f"_split-{args.split}"
     fp += f"_samples{args.max_samples}"
     fp += f"_strength{args.astar_strength}" if (args.astar_strength is not None) else ""
@@ -150,12 +155,8 @@ def main():
     if not os.path.exists(fp):
         with open(fp, 'w') as f:
             pass
-
-    # first_utts = []
-    # target_utts = []
-    # middle_utts = []
-    # gold_utts = []
     
+    # Main loop
     for _, sample in enumerate(tqdm(dataset)):
         source_utt = sample['first_utt']
         target_utt = sample['last_utt']
@@ -169,62 +170,98 @@ def main():
         logger.debug(f"Target: {target_utt}")
         logger.debug(f"Conv len: {conv_len}")
 
-        # if args.do_prompt:
-        #     target_utt += SEP_TOK
-        target = tokenizer([target_utt], return_tensors="pt").to(
-            args.device).input_ids
-
-        conv_so_far = []
-        conv_so_far.append(source_utt)
-
-        for i in range(conv_len):
-
-            conv_so_far_str = SEP_TOK.join(conv_so_far)
-            inputs = tokenizer([conv_so_far_str], truncation=True, return_tensors="pt").to(
+        # Parlai delimiter mode
+        if args.delimiter == 'tab':
+            target = tokenizer([target_utt], return_tensors="pt").to(
                 args.device).input_ids
 
-            if args.do_prompt:
-                truncate_to = -(128 - target.shape[-1])
-                inputs = torch.cat((target, inputs[:, truncate_to:]), -1)
+            conv_so_far = []
+            conv_so_far.append(source_utt)
 
-            # logger.debug(
-            #     f"History {i}: {repr(tokenizer.batch_decode(inputs, skip_special_tokens=False)[0])}")
+            for i in range(conv_len):
 
-            reply_ids = model.generate(input_ids=inputs,
-                                       # decoder_input_ids=decoder_input_ids,
-                                       num_beams=3,
-                                       do_astar=args.do_astar,
-                                       do_cosine=args.do_cosine,
-                                       target_utterance=target,
-                                       astar_strength=args.astar_strength,
-                                       astar_top_k=args.astar_top_k,
-                                       )
+                conv_so_far_str = SEP_TOK.join(conv_so_far)
+                inputs = tokenizer([conv_so_far_str], truncation=True, return_tensors="pt").to(
+                    args.device).input_ids
 
-            logger.debug(f"Utt {i}: {repr(tokenizer.batch_decode(reply_ids, skip_special_tokens=False)[0])}")
+                if args.do_prompt:
+                    truncate_to = -(128 - target.shape[-1])
+                    inputs = torch.cat((target, inputs[:, truncate_to:]), -1)
 
-            response = tokenizer.batch_decode(
-                reply_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0]
-            conv_so_far.append(response.strip())
+                # logger.debug(
+                #     f"History {i}: {repr(tokenizer.batch_decode(inputs, skip_special_tokens=False)[0])}")
 
-        output = {"first_utt": source_utt,
-                  "target_utt": target_utt,
-                  "middle_utt": conv_so_far[1:],
-                  "gold_utt": sample['between_utt']
-                  }
+                reply_ids = model.generate(input_ids=inputs,
+                                        num_beams=3,
+                                        do_astar=args.do_astar,
+                                        do_cosine=args.do_cosine,
+                                        target_utterance=target,
+                                        astar_strength=args.astar_strength,
+                                        astar_top_k=args.astar_top_k,
+                                        )
+
+                logger.debug(f"Utt {i}: {repr(tokenizer.batch_decode(reply_ids, skip_special_tokens=False)[0])}")
+
+                response = tokenizer.batch_decode(
+                    reply_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0]
+                conv_so_far.append(response.strip())
+
+
+            # Write out the generated utterances
+            output = {"first_utt": source_utt,
+                    "target_utt": target_utt,
+                    "middle_utt": conv_so_far[1:],
+                    "gold_utt": sample['between_utt']
+                    }
+
+        elif args.delimiter == 'raw':
+            target = tokenizer([target_utt], return_tensors="pt").to(
+                args.device).input_ids
+            inputs = tokenizer([source_utt], truncation=True, return_tensors="pt").to(
+                    args.device).input_ids
+
+            conv_so_far = []
+            for i in range(conv_len):
+                
+                if args.do_prompt:
+                    truncate_to = -(128 - target.shape[-1])
+                    prompted_inputs = torch.cat((target, inputs[:, truncate_to:]), -1)
+
+                logger.debug(
+                    f"History {i}: {repr(tokenizer.batch_decode(prompted_inputs if args.do_prompt else inputs, skip_special_tokens=False)[0])}")
+
+                reply_ids = model.generate(input_ids=prompted_inputs if args.do_prompt else inputs,
+                                        num_beams=3,
+                                        do_astar=args.do_astar,
+                                        do_cosine=args.do_cosine,
+                                        target_utterance=target,
+                                        astar_strength=args.astar_strength,
+                                        astar_top_k=args.astar_top_k,
+                                        )
+                
+                # Update dialogue history and truncate
+                inputs = torch.cat((inputs, reply_ids), dim=1)
+                inputs = inputs[:, -128:]
+
+                logger.debug(f"Utt {i}: {repr(tokenizer.batch_decode(reply_ids, skip_special_tokens=False)[0])}")
+
+                response = tokenizer.batch_decode(
+                    reply_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0]
+                conv_so_far.append(response.strip())
+
+
+            # Write out the generated utterances
+            output = {"first_utt": source_utt,
+                    "target_utt": target_utt,
+                    "middle_utt": conv_so_far,
+                    "gold_utt": sample['between_utt']
+                    }
+            
+        else:
+            raise ValueError(f"Invalid delimiter: {args.delimiter}")
+        
         with jsonlines.open(fp, mode='a') as writer:
-            # writer.write(tdauve_output.__dict__)
-            writer.write(output)
-        # first_utts.append(source_utt)
-        # middle_utts.append(conv_so_far[1:])
-        # gold_utts.append(sample['between_utt'])
-        # target_utts.append(target_utt)
-
-    # to dataframe
-    # df = pd.DataFrame({"first_utt": first_utts, "target_utt": target_utts,
-    #                   "middle_utt": middle_utts, "gold_utt": gold_utts})
-    # save to pkl
-
-    # df.to_pickle(fp)
+                writer.write(output)
     
 
 

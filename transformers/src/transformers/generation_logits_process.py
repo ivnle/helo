@@ -700,18 +700,19 @@ class AStarSearch(LogitsProcessor):
 
     def __init__(self, model, encoder_input_ids, target_utterance, astar_strength, astar_top_k):
         self.model = model
-        self.encoder_input_ids = encoder_input_ids        
-        self.target_utterance = target_utterance
-        self.top_k = astar_top_k
-        self.strength = astar_strength
+        self.encoder_input_ids = encoder_input_ids # dialogue history tokens
+        self.target_utterance = target_utterance # target utterance tokens
+        self.top_k = astar_top_k # trim tokens for faster computation
+        self.strength = astar_strength # heuristic strength
 
         # For debugging
         mname = "facebook/blenderbot-400M-distill"
         self.tokenizer = AutoTokenizer.from_pretrained(mname)
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        # input_ids [bm_sz, seq_so_far]
-        # scores [bm_sz, vocab_sz], already normalized in `beam_search` function which calls the function we are in
+        # input_ids [bm_sz, seq_so_far]  = sequence so far
+        # scores [bm_sz, vocab_sz] = distribution over next token, already normalized in `beam_search` function which calls the function we are in
+
         beam_size = input_ids.shape[0]
         vocab_size = scores.shape[-1]
 
@@ -720,6 +721,10 @@ class AStarSearch(LogitsProcessor):
         scores = scores.fill_(-float("Inf"))
         scores = scores.scatter(1, top_indices, top_logits) # [bm_sz, vocab_sz]
 
+        # # get non negative infinity scores
+        # print(vocab_size*beam_size - scores.isneginf().sum())
+        # foo
+
         # Note: Do not normalize `scores`. Will produce garbage output because some beams are initialized
         # with 1e-9. Normalizing a beam with all 1e-9 results in big numbers relative to the beam that
         # was initialized with normal scores.        
@@ -727,7 +732,7 @@ class AStarSearch(LogitsProcessor):
         # Extend sequence so far with potential next tokens
         input_ids = input_ids.unsqueeze(1).expand(-1, self.top_k, -1) # [bmsz, top_k, seq_so_far]
         potential_next_tokens = top_indices.unsqueeze(2) # [bmsz, top_k, 1]
-        input_ids = torch.cat([input_ids, potential_next_tokens], dim=-1) # [bmsz, top_k, seq_so_far+1]        
+        input_ids = torch.cat([input_ids, potential_next_tokens], dim=-1) # [bmsz, top_k, seq_so_far+1]
 
         # # Build inputs for conditioning model
         # input_ids = input_ids.unsqueeze(1).expand(-1, vocab_size, -1) # [beam_size, vocab_size, seq_len]
@@ -782,21 +787,40 @@ class AStarSearch(LogitsProcessor):
         encoder_input_ids = self.encoder_input_ids.expand(beam_size * self.top_k, -1) # [bmsz*top_k, enc_seq_len]
         greedy_output = self.model.generate(input_ids=encoder_input_ids, 
                                             decoder_input_ids=input_ids,
-                                            do_astar=False,
+                                            # do_astar=False,
                                             num_beams=1,
                                             do_sample=False,
                                             ) # [bmsz*top_k, gen_seq_len]
 
+        # greedy_output = greedy_output[:, 1:]
+        # ones = torch.ones((beam_size * self.top_k, 3), device=greedy_output.device, dtype=torch.int64) * 228
+        # greedy_output = torch.cat([ones, greedy_output], dim=-1)
+    
         # Extend dialogue history with greedy lookahead generations
+        # encoder_input_ids_cont = torch.cat([encoder_input_ids[:, :-1], greedy_output], dim=-1) # [bmsz*top_k, enc_seq_len+la_seq_len]
         encoder_input_ids_cont = torch.cat([encoder_input_ids, greedy_output], dim=-1) # [bmsz*top_k, enc_seq_len+la_seq_len]
-
+        # print(encoder_input_ids_cont[0])
+        # print(self.tokenizer.decode(encoder_input_ids_cont[0], skip_special_tokens=False))
+        # foo
         # Truncate dialogue history to max model length
         encoder_input_ids_cont = encoder_input_ids_cont[:, -128:]
 
+        # print(encoder_input_ids_cont[0])
+        # print(self.tokenizer.decode(encoder_input_ids_cont[0], skip_special_tokens=False))
+
+        # copy encoder_input_ids_cont to attention_mask
+        attention_mask = encoder_input_ids_cont.clone()
+        
+        attention_mask[attention_mask!=0] = 1
+        # print(attention_mask[1])
+        # foo
+
         # Set attention weights to zero for pad tokens
-        pad_indices = encoder_input_ids_cont.eq(0).nonzero()        
-        attention_mask = torch.ones(size=encoder_input_ids_cont.shape, device=encoder_input_ids_cont.device)
-        attention_mask[pad_indices[:, 0], pad_indices[:, 1]] = 0
+        # pad_indices = encoder_input_ids_cont.eq(0).nonzero()
+        # print(pad_indices[0])
+        # foo
+        # attention_mask = torch.ones(size=encoder_input_ids_cont.shape, device=encoder_input_ids_cont.device)
+        # attention_mask[pad_indices[:, 0], pad_indices[:, 1]] = 0
         
         # Compute loss
         target_utterance = self.target_utterance.expand(beam_size * self.top_k, -1) # [bmsz*top_k, tgt_seq_len]
