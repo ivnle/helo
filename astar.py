@@ -9,6 +9,7 @@ import pandas as pd
 import os
 import sys
 import jsonlines
+import math
 
 SEP_TOK = '    '
 
@@ -26,13 +27,16 @@ class Arguments:
     do_cosine: bool = field(default=False, metadata={"help": "Do cosine or not."})
     do_prompt: bool = field(default=False, metadata={"help": "Do prompt or not."})
     astar_strength: int = field(default=None, metadata={
-                                "help": "Strength of heuristic."})
+                                "help": "Starting strength of heuristic. Outside exponential."})
     astar_top_k: int = field(default=None, metadata={"help": "Top k to use."})
     output_dir: str = field(default=None, metadata={
                             "help": "Output directory."})    
     max_samples: int = field(default=None, metadata={"help": "Max samples to use."})
     start_idx: int = field(default=0, metadata={"help": "Start index."})    
     delimiter: str = field(default='tab', metadata={"help": "Delimiter to use. Choices = [tab, raw]"})
+    # do_anneal: bool = field(default=False, metadata={"help": "Do annealing or not."})
+    c: float = field(default=0, metadata={"help": "c for annealing. inside exponential. set to 0 for no annealing"})
+    # lam: float = field(default=None, metadata={"help": "Lambda for annealing. outside exponential"})
     # trunk_dir: str = field(default=None, metadata={
     #                        "help": "Trunk directory for large files."})
 
@@ -82,6 +86,11 @@ def prepare_dataset(args):
                           remove_columns=dataset['train'].column_names)
 
     return dataset
+
+def get_strength(i, conv_len, args):
+    strength = args.astar_strength * math.exp(args.c * i / conv_len)
+    logger.debug(f"Strength: {strength}")
+    return strength
 
 
 def main():
@@ -146,6 +155,7 @@ def main():
     fp += f"_split-{args.split}"
     fp += f"_samples{args.max_samples}"
     fp += f"_strength{args.astar_strength}" if (args.astar_strength is not None) else ""
+    fp += f"_c{args.c}"
     fp += f"_topk{args.astar_top_k}" if (args.astar_top_k is not None) else ""
     fp += f"_seed{args.seed}"
     fp += f"_debug" if args.debug else ""
@@ -174,12 +184,11 @@ def main():
         if args.delimiter == 'tab':
             target = tokenizer([target_utt], return_tensors="pt").to(
                 args.device).input_ids
-
             conv_so_far = []
             conv_so_far.append(source_utt)
-
+            
             for i in range(conv_len):
-
+                
                 conv_so_far_str = SEP_TOK.join(conv_so_far)
                 inputs = tokenizer([conv_so_far_str], truncation=True, return_tensors="pt").to(
                     args.device).input_ids
@@ -188,19 +197,19 @@ def main():
                     truncate_to = -(128 - target.shape[-1])
                     inputs = torch.cat((target, inputs[:, truncate_to:]), -1)
 
-                # logger.debug(
-                #     f"History {i}: {repr(tokenizer.batch_decode(inputs, skip_special_tokens=False)[0])}")
+                logger.debug(
+                    f"History {i}: {repr(tokenizer.batch_decode(inputs, skip_special_tokens=False)[0])}")                
 
                 reply_ids = model.generate(input_ids=inputs,
                                         num_beams=3,
                                         do_astar=args.do_astar,
                                         do_cosine=args.do_cosine,
                                         target_utterance=target,
-                                        astar_strength=args.astar_strength,
+                                        astar_strength=get_strength(i, conv_len, args),
                                         astar_top_k=args.astar_top_k,
                                         )
 
-                logger.debug(f"Utt {i}: {repr(tokenizer.batch_decode(reply_ids, skip_special_tokens=False)[0])}")
+                logger.debug(f"Utt {i}: {repr(tokenizer.batch_decode(reply_ids, skip_special_tokens=False)[0])}\n")
 
                 response = tokenizer.batch_decode(
                     reply_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0]
@@ -235,7 +244,7 @@ def main():
                                         do_astar=args.do_astar,
                                         do_cosine=args.do_cosine,
                                         target_utterance=target,
-                                        astar_strength=args.astar_strength,
+                                        astar_strength=get_strength(i, conv_len, args),
                                         astar_top_k=args.astar_top_k,
                                         )
                 
