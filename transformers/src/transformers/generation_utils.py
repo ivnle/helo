@@ -27,6 +27,7 @@ from .generation_beam_constraints import Constraint, DisjunctiveConstraint, Phra
 from .generation_beam_search import BeamScorer, BeamSearchScorer, ConstrainedBeamSearchScorer
 from .generation_logits_process import (
     AStarSearch,
+    CosineSearch,
     EncoderNoRepeatNGramLogitsProcessor,
     ExponentialDecayLengthPenalty,
     ForcedBOSTokenLogitsProcessor,
@@ -884,8 +885,8 @@ class GenerationMixin:
         remove_invalid_values: Optional[bool] = None,
         synced_gpus: Optional[bool] = False,
         exponential_decay_length_penalty: Optional[Tuple[Union[int, float]]] = None,
-        do_astar=None,
-        target_utterance=None,
+        do_astar=False, # Do A* inspired beam search or not
+        do_cosine=False,
         **model_kwargs,
     ) -> Union[GreedySearchOutput, SampleOutput, BeamSearchOutput, BeamSampleOutput, torch.LongTensor]:
         r"""
@@ -1120,6 +1121,7 @@ class GenerationMixin:
         ```"""
         astar_strength = model_kwargs.pop('astar_strength', None)
         astar_top_k = model_kwargs.pop('astar_top_k', None)
+        target_utterance = model_kwargs.pop('target_utterance', None)
         
         # 1. Set generation parameters if not already defined
         bos_token_id = bos_token_id if bos_token_id is not None else self.config.bos_token_id
@@ -1271,7 +1273,7 @@ class GenerationMixin:
         )
 
         # 8.5. Prepare A star processor
-        astar_processor = None
+        # astar_processor = None
         if do_astar:
             astar_processor = AStarSearch(model=self, 
                                         encoder_input_ids=inputs_tensor, 
@@ -1279,6 +1281,17 @@ class GenerationMixin:
                                         astar_strength=astar_strength,
                                         astar_top_k=astar_top_k,
                                         )
+
+        # cosine_processor = None
+        elif do_cosine:
+            astar_processor = CosineSearch(model=self,
+                                        encoder_input_ids=inputs_tensor, 
+                                        target_utterance=target_utterance,
+                                        strength=astar_strength,
+                                        top_k=astar_top_k,
+                                        )
+        else:
+            astar_processor = None
 
         # 8. prepare stopping criteria
         stopping_criteria = self._get_stopping_criteria(

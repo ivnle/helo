@@ -22,15 +22,16 @@ class Arguments:
     model: str = field(default=None, metadata={"help": "Model to use."})
     dataset: str = field(default=None, metadata={"help": "Dataset to use."})
     split: str = field(default=None, metadata={"help": "Split to use."})
-    do_astar: bool = field(default=True, metadata={"help": "Do A* or not."})
+    do_astar: bool = field(default=False, metadata={"help": "Do A* or not."})
+    do_cosine: bool = field(default=False, metadata={"help": "Do cosine or not."})
+    do_prompt: bool = field(default=False, metadata={"help": "Do prompt or not."})
     astar_strength: int = field(default=None, metadata={
                                 "help": "Strength of heuristic."})
     astar_top_k: int = field(default=None, metadata={"help": "Top k to use."})
     output_dir: str = field(default=None, metadata={
                             "help": "Output directory."})    
     max_samples: int = field(default=None, metadata={"help": "Max samples to use."})
-    start_idx: int = field(default=0, metadata={"help": "Start index."})
-    do_prompt: bool = field(default=False, metadata={"help": "Do prompt or not."})
+    start_idx: int = field(default=0, metadata={"help": "Start index."})    
     # trunk_dir: str = field(default=None, metadata={
     #                        "help": "Trunk directory for large files."})
 
@@ -129,8 +130,8 @@ def main():
     dataset = dataset[args.split]
 
     if args.debug:
-        dataset = dataset.select(range(0, 2))
-        args.astar_top_k = 5
+        dataset = dataset.select(range(0, 2)) if args.start_idx is None else dataset.select(range(args.start_idx, args.start_idx + 2))
+        args.astar_top_k = 5 if (args.astar_top_k is None) else args.astar_top_k
     elif args.max_samples is not None:
         dataset = dataset.select(range(args.start_idx, args.start_idx + args.max_samples))
     
@@ -159,6 +160,10 @@ def main():
         source_utt = sample['first_utt']
         target_utt = sample['last_utt']
         conv_len = sample['between_utt_len']
+        # if args.debug:
+        #     source_utt = "My friends are cool but they eat too many carbs."
+        #     target_utt = 'The glory of the Roman empire is forever.'
+        #     conv_len = 10
 
         logger.debug(f"Source: {source_utt}")
         logger.debug(f"Target: {target_utt}")
@@ -182,19 +187,20 @@ def main():
                 truncate_to = -(128 - target.shape[-1])
                 inputs = torch.cat((target, inputs[:, truncate_to:]), -1)
 
-            logger.debug(
-                f"History {i}: {repr(tokenizer.batch_decode(inputs, skip_special_tokens=False)[0])}")
+            # logger.debug(
+            #     f"History {i}: {repr(tokenizer.batch_decode(inputs, skip_special_tokens=False)[0])}")
 
             reply_ids = model.generate(input_ids=inputs,
                                        # decoder_input_ids=decoder_input_ids,
                                        num_beams=3,
                                        do_astar=args.do_astar,
+                                       do_cosine=args.do_cosine,
                                        target_utterance=target,
                                        astar_strength=args.astar_strength,
                                        astar_top_k=args.astar_top_k,
                                        )
 
-            # logger.debug(f"Utt {i}: {repr(tokenizer.batch_decode(reply_ids, skip_special_tokens=False)[0])}")
+            logger.debug(f"Utt {i}: {repr(tokenizer.batch_decode(reply_ids, skip_special_tokens=False)[0])}")
 
             response = tokenizer.batch_decode(
                 reply_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0]
