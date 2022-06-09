@@ -148,15 +148,20 @@ def main():
         dataset = dataset.select(range(args.start_idx, args.start_idx + args.max_samples))
     
     # Move this file path making stuff into a function
-    fp = os.path.join(args.output_dir, "gen")
-    fp += f"_astar" if args.do_astar else "_beam"
-    fp += f"_do-prompt" if args.do_prompt else ""
-    fp += f"_delimit-{args.delimiter}"
-    fp += f"_split-{args.split}"
-    fp += f"_samples{args.max_samples}"
-    fp += f"_strength{args.astar_strength}" if (args.astar_strength is not None) else ""
-    fp += f"_c{args.c}"
-    fp += f"_topk{args.astar_top_k}" if (args.astar_top_k is not None) else ""
+    fp = os.path.join(args.output_dir, f"{args.dataset.replace('_', '-')}")
+    fp += f"_{args.split}"
+    fp += f"_samples{args.start_idx}:{args.max_samples}"
+    # fp += f"_{args.dataset}"
+    fp += f"_{args.delimiter}"    
+
+    fp += f"_astar" if args.do_astar else "_cosine" if args.do_cosine else "_beam"
+    fp += f"_prompt" if args.do_prompt else ""    
+    # fp += f"_startidx{args.start_idx}"    
+    if args.do_astar:
+        fp += f"_str{args.astar_strength}" if (args.astar_strength is not None) else ""
+        fp += f"_c{args.c}"
+        fp += f"_top{args.astar_top_k}" if (args.astar_top_k is not None) else ""
+
     fp += f"_seed{args.seed}"
     fp += f"_debug" if args.debug else ""
     fp += '.jsonl'
@@ -171,10 +176,10 @@ def main():
         source_utt = sample['first_utt']
         target_utt = sample['last_utt']
         conv_len = sample['between_utt_len']
-        # if args.debug:
-        #     source_utt = "My friends are cool but they eat too many carbs."
-        #     target_utt = 'The glory of the Roman empire is forever.'
-        #     conv_len = 10
+        if args.debug:
+            source_utt = "My friends are cool but they eat too many carbs."
+            target_utt = 'The glory of the Roman empire is forever.'
+            conv_len = 10
 
         logger.debug(f"Source: {source_utt}")
         logger.debug(f"Target: {target_utt}")
@@ -186,6 +191,7 @@ def main():
                 args.device).input_ids
             conv_so_far = []
             conv_so_far.append(source_utt)
+            contexts = []
             
             for i in range(conv_len):
                 
@@ -199,6 +205,7 @@ def main():
 
                 logger.debug(
                     f"History {i}: {repr(tokenizer.batch_decode(inputs, skip_special_tokens=False)[0])}")                
+                contexts.append(inputs[0].tolist())
 
                 reply_ids = model.generate(input_ids=inputs,
                                         num_beams=3,
@@ -220,7 +227,8 @@ def main():
             output = {"first_utt": source_utt,
                     "target_utt": target_utt,
                     "middle_utt": conv_so_far[1:],
-                    "gold_utt": sample['between_utt']
+                    "gold_utt": sample['between_utt'],
+                    "contexts": contexts,
                     }
 
         elif args.delimiter == 'raw':
@@ -230,6 +238,7 @@ def main():
                     args.device).input_ids
 
             conv_so_far = []
+            contexts = []
             for i in range(conv_len):
                 
                 if args.do_prompt:
@@ -238,6 +247,7 @@ def main():
 
                 logger.debug(
                     f"History {i}: {repr(tokenizer.batch_decode(prompted_inputs if args.do_prompt else inputs, skip_special_tokens=False)[0])}")
+                contexts.append(prompted_inputs[0].tolist() if args.do_prompt else inputs[0].tolist())
 
                 reply_ids = model.generate(input_ids=prompted_inputs if args.do_prompt else inputs,
                                         num_beams=3,
@@ -263,7 +273,8 @@ def main():
             output = {"first_utt": source_utt,
                     "target_utt": target_utt,
                     "middle_utt": conv_so_far,
-                    "gold_utt": sample['between_utt']
+                    "gold_utt": sample['between_utt'],
+                    "contexts": contexts,
                     }
             
         else:
