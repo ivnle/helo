@@ -28,8 +28,7 @@ def compute_smooth(df, do_human=False):
     cp = 'facebook/blenderbot-400M-distill'
     model = BlenderbotForConditionalGeneration.from_pretrained(cp)
     model.to('cuda')
-    tokenizer = AutoTokenizer.from_pretrained(cp)
-    tokenizer.truncation_side = 'left'
+    tokenizer = AutoTokenizer.from_pretrained(cp)    
 
     first_utt = df['first_utt']
     predictions = df['gold_utt'] if do_human else df['middle_utt']
@@ -57,8 +56,12 @@ def compute_smooth(df, do_human=False):
         conv_ppls = []
         for utt_idx, utt in enumerate(conv[1:], 1):
             dh_str = SEP_TOK.join(conv[:utt_idx])
+
+            tokenizer.truncation_side = 'left'
             inputs = tokenizer([dh_str], truncation=True,
                                return_tensors="pt").to('cuda').input_ids
+
+            tokenizer.truncation_side = 'right'
             labels = tokenizer([utt], truncation=True,
                                return_tensors="pt").to('cuda').input_ids
             with torch.no_grad():
@@ -97,16 +100,18 @@ def compute_smooth(df, do_human=False):
 def main():
 
     files_to_eval = [
-        "gen/gen_beam_split-test_samples50_seed0.jsonl",
-        "gen/blended-skill-talk_test_samples0:50_tab_beam_seed0.jsonl",
-        "gen/gen_beam_do-prompt_split-test_samples50_seed0.jsonl",
-        "gen/blended-skill-talk_test_samples0:50_tab_beam_prompt_seed0.jsonl",
-        "gen/gen_split-test_samples50_strength5_topk40_seed0.jsonl",
-        "gen/gen_split-test_samples50_strength10_topk40_seed0.jsonl",
-        "gen/gen_split-test_samples50_strength15_topk40_seed0.jsonl",
-        "gen/gen_split-test_samples50_strength20_topk40_seed0.jsonl",        
-        "gen/gen_astar_delimit-tab_split-test_samples50_strength5_c2.0_topk40_seed0.jsonl",
-        "gen/gen_astar_delimit-tab_split-test_samples50_strength10_topk40_seed0.jsonl"
+        # "gen/blended-skill-talk_test_samples0:980_tab_beam_seed0.jsonl",
+        'gen/meena_test_samples0:50_tab_beam_seed0.jsonl',
+        # "gen/gen_beam_split-test_samples50_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_beam_seed0.jsonl",
+        # "gen/gen_beam_do-prompt_split-test_samples50_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_beam_prompt_seed0.jsonl",
+        # "gen/gen_split-test_samples50_strength5_topk40_seed0.jsonl",
+        # "gen/gen_split-test_samples50_strength10_topk40_seed0.jsonl",
+        # "gen/gen_split-test_samples50_strength15_topk40_seed0.jsonl",
+        # "gen/gen_split-test_samples50_strength20_topk40_seed0.jsonl",        
+        # "gen/gen_astar_delimit-tab_split-test_samples50_strength5_c2.0_topk40_seed0.jsonl",
+        # "gen/gen_astar_delimit-tab_split-test_samples50_strength10_topk40_seed0.jsonl"
         # "gen/blended-skill-talk_test_samples0:50_raw_beam_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_raw_beam_prompt_seed0.jsonl",
         # "gen/gen_astar_delimit-raw_split-test_samples50_strength10_topk40_seed0.jsonl",

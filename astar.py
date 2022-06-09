@@ -10,6 +10,7 @@ import os
 import sys
 import jsonlines
 import math
+import demoji
 
 SEP_TOK = '    '
 
@@ -40,8 +41,49 @@ class Arguments:
     # trunk_dir: str = field(default=None, metadata={
     #                        "help": "Trunk directory for large files."})
 
+def prepare_meena_dataset():
+    with open('/home/ivanlee/cyoa/datasets/meena-human2human.txt','r') as f:
+        utts = f.read()
+        utts = demoji.replace(utts, '')
+    utts = utts.split("\n")
 
-def prepare_dataset(args):
+    conversations = []
+    conv = None
+    for utt in utts:
+        if utt == '':
+            continue
+        if 'Human Conversation ' in utt:
+            if conv is not None:
+                conversations.append(conv.copy())
+            conv = []
+        else:
+            utt = utt.replace('Human 1: ', '')
+            utt = utt.replace('Human 2: ', '')
+            conv.append(utt)
+    conversations.append(conv)
+
+    # Remove first and last two utterances which are usually greetings and good byes
+    conversations = [conv[2:-2] for conv in conversations]
+
+    # Filter out conversations that are too short
+    conversations = [conv for conv in conversations if len(conv) > 3]
+    
+    full_conv = conversations
+    first_utt = [conv[0] for conv in conversations]
+    last_utt = [conv[-1] for conv in conversations]
+    between_utt  = [conv[1:-1] for conv in conversations]
+    between_utt_len = [len(utt) for utt in between_utt]
+    
+    d = {'full_conv': full_conv, 'first_utt': first_utt,
+                'last_utt': last_utt, 'between_utt': between_utt, 'between_utt_len': between_utt_len}
+
+    dataset = datasets.Dataset.from_dict(d)
+    dataset = datasets.DatasetDict({'test': dataset})
+
+    return dataset
+
+
+def prepare_bst_dataset(args):
     dataset = datasets.load_dataset(args.dataset)
 
     def process_dataset(examples):
@@ -115,7 +157,12 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     tokenizer.truncation_side = 'left'
 
-    dataset = prepare_dataset(args)
+    if args.dataset == "blended_skill_talk":
+        dataset = prepare_bst_dataset(args)
+    elif args.dataset == "meena":
+        dataset = prepare_meena_dataset()
+    else:
+        raise ValueError(f"Unknown dataset: {args.dataset}")
     # print(dataset['test'][0]['full_conv'])
     # print(dataset['test'][0]['first_utt'])
     # print(dataset['test'][0]['last_utt'])
@@ -139,12 +186,15 @@ def main():
 
     dataset = dataset[args.split]
 
+    if args.max_samples is None:
+        args.max_samples = len(dataset)
+
     # Default debug settings
     if args.debug:
         dataset = dataset.select(range(0, 2)) if args.start_idx is None else dataset.select(range(args.start_idx, args.start_idx + 2))
         args.astar_top_k = 5 if (args.astar_top_k is None) else args.astar_top_k
         args.output_dir = 'debug'
-    elif args.max_samples is not None:
+    else:
         dataset = dataset.select(range(args.start_idx, args.start_idx + args.max_samples))
     
     # Move this file path making stuff into a function
@@ -176,10 +226,10 @@ def main():
         source_utt = sample['first_utt']
         target_utt = sample['last_utt']
         conv_len = sample['between_utt_len']
-        if args.debug:
-            source_utt = "My friends are cool but they eat too many carbs."
-            target_utt = 'The glory of the Roman empire is forever.'
-            conv_len = 10
+        # if args.debug:
+            # source_utt = "My friends are cool but they eat too many carbs."
+            # target_utt = 'The glory of the Roman empire is forever.'
+            # conv_len = 10
 
         logger.debug(f"Source: {source_utt}")
         logger.debug(f"Target: {target_utt}")
@@ -187,8 +237,12 @@ def main():
 
         # Parlai delimiter mode
         if args.delimiter == 'tab':
-            target = tokenizer([target_utt], return_tensors="pt").to(
+            
+            tokenizer.truncation_side = 'right'
+            target = tokenizer([target_utt], truncation=True, return_tensors="pt").to(
                 args.device).input_ids
+            tokenizer.truncation_side = 'left'
+
             conv_so_far = []
             conv_so_far.append(source_utt)
             contexts = []
@@ -232,8 +286,10 @@ def main():
                     }
 
         elif args.delimiter == 'raw':
-            target = tokenizer([target_utt], return_tensors="pt").to(
+            tokenizer.truncation_side = 'right'
+            target = tokenizer([target_utt], truncation=True, return_tensors="pt").to(
                 args.device).input_ids
+            tokenizer.truncation_side = 'left'
             inputs = tokenizer([source_utt], truncation=True, return_tensors="pt").to(
                     args.device).input_ids
 
