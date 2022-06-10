@@ -240,8 +240,7 @@ def main():
             
             tokenizer.truncation_side = 'right'
             target = tokenizer([target_utt], truncation=True, return_tensors="pt").to(
-                args.device).input_ids
-            tokenizer.truncation_side = 'left'
+                args.device).input_ids            
 
             conv_so_far = []
             conv_so_far.append(source_utt)
@@ -250,15 +249,20 @@ def main():
             for i in range(conv_len):
                 
                 conv_so_far_str = SEP_TOK.join(conv_so_far)
+                tokenizer.truncation_side = 'left'
                 inputs = tokenizer([conv_so_far_str], truncation=True, return_tensors="pt").to(
                     args.device).input_ids
 
                 if args.do_prompt:
-                    truncate_to = -(128 - target.shape[-1])
-                    inputs = torch.cat((target, inputs[:, truncate_to:]), -1)
+                    if target.shape[-1] > 64:
+                        prefix = target[:, :64]
+                    else:
+                    truncate_to = -(128 - prefix.shape[-1]) #TODO fix this
+                    inputs = torch.cat((prefix, inputs[:, truncate_to:]), -1)
 
                 logger.debug(
-                    f"History {i}: {repr(tokenizer.batch_decode(inputs, skip_special_tokens=False)[0])}")                
+                    f"History {i}: {repr(tokenizer.batch_decode(inputs, skip_special_tokens=False)[0])}")     
+
                 contexts.append(inputs[0].tolist())
 
                 reply_ids = model.generate(input_ids=inputs,
