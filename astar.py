@@ -191,7 +191,7 @@ def main():
 
     # Default debug settings
     if args.debug:
-        dataset = dataset.select(range(0, 2)) if args.start_idx is None else dataset.select(range(args.start_idx, args.start_idx + 2))
+        dataset = dataset.select(range(0, 2)) if args.start_idx is None else dataset.select(range(args.start_idx, args.start_idx + 5))
         args.astar_top_k = 5 if (args.astar_top_k is None) else args.astar_top_k
         args.output_dir = 'debug'
     else:
@@ -257,7 +257,8 @@ def main():
                     if target.shape[-1] > 64:
                         prefix = target[:, :64]
                     else:
-                    truncate_to = -(128 - prefix.shape[-1]) #TODO fix this
+                        prefix = target
+                    truncate_to = -(128 - prefix.shape[-1])
                     inputs = torch.cat((prefix, inputs[:, truncate_to:]), -1)
 
                 logger.debug(
