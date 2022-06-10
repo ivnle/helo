@@ -41,7 +41,71 @@ class Arguments:
     # trunk_dir: str = field(default=None, metadata={
     #                        "help": "Trunk directory for large files."})
 
-def prepare_meena_dataset():
+def prepare_personachat_dataset(min_conv_len=6, max_conv_len=8):
+    dataset = datasets.load_dataset("bavard/personachat_truecased")
+    conversations = dataset['validation']
+    df = conversations.to_pandas()
+    conv_map = {}
+    for i in range(len(df)):    
+        row = df.iloc[i]
+        cid = str(row['conv_id'])
+
+        if cid in conv_map:
+            if len(row['history']) > len(conv_map[cid]):
+                conv_map[cid] = row['history'].tolist()
+        else:
+            conv_map[cid] = row['history'].tolist()
+
+    # conv_map to list
+    conversations = [conv_map[cid] for cid in conv_map]
+
+    # Filter out conversations that are too short
+    conversations = [conv for conv in conversations if len(conv) > min_conv_len]
+    # Truncate conversations that are too long
+    conversations = [conv[:max_conv_len] for conv in conversations]
+    
+    full_conv = conversations
+    first_utt = [conv[0] for conv in conversations]
+    last_utt = [conv[-1] for conv in conversations]
+    between_utt  = [conv[1:-1] for conv in conversations]
+    between_utt_len = [len(utt) for utt in between_utt]
+    
+    d = {'full_conv': full_conv, 'first_utt': first_utt,
+                'last_utt': last_utt, 'between_utt': between_utt, 'between_utt_len': between_utt_len}    
+    
+    dataset = datasets.Dataset.from_dict(d)
+    dataset = datasets.DatasetDict({'test': dataset})
+
+    return dataset
+
+def prepare_wow_dataset(min_conv_len=6, max_conv_len=8):
+    df = pd.read_json('/home/ivanlee/cyoa/datasets/wow_test_random_split.json')
+    conversations_with_meta = df['dialog']
+    conversations = []
+    for conv in conversations_with_meta:
+        only_conv = [utt['text'] for utt in conv]
+        conversations.append(only_conv)
+
+    # Filter out conversations that are too short
+    conversations = [conv for conv in conversations if len(conv) > min_conv_len]
+    # Truncate conversations that are too long
+    conversations = [conv[:max_conv_len] for conv in conversations]
+    
+    full_conv = conversations
+    first_utt = [conv[0] for conv in conversations]
+    last_utt = [conv[-1] for conv in conversations]
+    between_utt  = [conv[1:-1] for conv in conversations]
+    between_utt_len = [len(utt) for utt in between_utt]
+    
+    d = {'full_conv': full_conv, 'first_utt': first_utt,
+                'last_utt': last_utt, 'between_utt': between_utt, 'between_utt_len': between_utt_len}
+
+    dataset = datasets.Dataset.from_dict(d)
+    dataset = datasets.DatasetDict({'test': dataset})
+
+    return dataset
+
+def prepare_meena_dataset(min_conv_len=6, max_conv_len=8):
     with open('/home/ivanlee/cyoa/datasets/meena-human2human.txt','r') as f:
         utts = f.read()
         utts = demoji.replace(utts, '')
@@ -66,7 +130,9 @@ def prepare_meena_dataset():
     conversations = [conv[2:-2] for conv in conversations]
 
     # Filter out conversations that are too short
-    conversations = [conv for conv in conversations if len(conv) > 3]
+    conversations = [conv for conv in conversations if len(conv) > min_conv_len]
+    # Truncate conversations that are too long
+    conversations = [conv[:max_conv_len] for conv in conversations]
     
     full_conv = conversations
     first_utt = [conv[0] for conv in conversations]
@@ -161,6 +227,10 @@ def main():
         dataset = prepare_bst_dataset(args)
     elif args.dataset == "meena":
         dataset = prepare_meena_dataset()
+    elif args.dataset == "wow":
+        dataset = prepare_wow_dataset()
+    elif args.dataset == "persona":
+        dataset = prepare_personachat_dataset()
     else:
         raise ValueError(f"Unknown dataset: {args.dataset}")
     # print(dataset['test'][0]['full_conv'])
