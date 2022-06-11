@@ -37,9 +37,45 @@ class Arguments:
     delimiter: str = field(default='tab', metadata={"help": "Delimiter to use. Choices = [tab, raw]"})
     # do_anneal: bool = field(default=False, metadata={"help": "Do annealing or not."})
     c: float = field(default=0, metadata={"help": "c for annealing. inside exponential. set to 0 for no annealing"})
+    beam_size: int = field(default=3, metadata={"help": "Beam size."})
+    min_conv_len: int = field(default=6, metadata={"help": "Min conversation length."})
+    max_conv_len: int = field(default=8, metadata={"help": "Max conversation length."})
     # lam: float = field(default=None, metadata={"help": "Lambda for annealing. outside exponential"})
     # trunk_dir: str = field(default=None, metadata={
     #                        "help": "Trunk directory for large files."})
+
+def prepare_empath_dataset(min_conv_len=6, max_conv_len=8):
+    dataset = datasets.load_dataset("empathetic_dialogues")
+    conversations = dataset['test']
+    print(len(conversations))
+    conversations = conversations.map(lambda examples: {'utt': [[x.replace('_comma_', ',')] for x in examples['utterance']]}, batched=True)
+    # conversations = conversations.map(lambda examples: {'utt': [[x] for x in examples['utterance']]}, batched=True)
+    df = conversations.to_pandas()
+    # convert df['utt'] to lists
+    df['utt'] = df['utt'].apply(lambda x: x.tolist())
+
+    df = df.groupby('conv_id').agg({'utt': 'sum'})
+    # convert df to list
+    conversations = df['utt'].to_list()
+    
+    # Filter out conversations that are too short
+    conversations = [conv for conv in conversations if len(conv) >= min_conv_len]
+    # Truncate conversations that are too long
+    conversations = [conv[:max_conv_len] for conv in conversations]
+    
+    full_conv = conversations
+    first_utt = [conv[0] for conv in conversations]
+    last_utt = [conv[-1] for conv in conversations]
+    between_utt  = [conv[1:-1] for conv in conversations]
+    between_utt_len = [len(utt) for utt in between_utt]
+    
+    d = {'full_conv': full_conv, 'first_utt': first_utt,
+                'last_utt': last_utt, 'between_utt': between_utt, 'between_utt_len': between_utt_len}    
+    
+    dataset = datasets.Dataset.from_dict(d)
+    dataset = datasets.DatasetDict({'test': dataset})
+
+    return dataset
 
 def prepare_personachat_dataset(min_conv_len=6, max_conv_len=8):
     dataset = datasets.load_dataset("bavard/personachat_truecased")
@@ -60,7 +96,7 @@ def prepare_personachat_dataset(min_conv_len=6, max_conv_len=8):
     conversations = [conv_map[cid] for cid in conv_map]
 
     # Filter out conversations that are too short
-    conversations = [conv for conv in conversations if len(conv) > min_conv_len]
+    conversations = [conv for conv in conversations if len(conv) >= min_conv_len]
     # Truncate conversations that are too long
     conversations = [conv[:max_conv_len] for conv in conversations]
     
@@ -87,7 +123,7 @@ def prepare_wow_dataset(min_conv_len=6, max_conv_len=8):
         conversations.append(only_conv)
 
     # Filter out conversations that are too short
-    conversations = [conv for conv in conversations if len(conv) > min_conv_len]
+    conversations = [conv for conv in conversations if len(conv) >= min_conv_len]
     # Truncate conversations that are too long
     conversations = [conv[:max_conv_len] for conv in conversations]
     
@@ -130,9 +166,12 @@ def prepare_meena_dataset(min_conv_len=6, max_conv_len=8):
     conversations = [conv[2:-2] for conv in conversations]
 
     # Filter out conversations that are too short
-    conversations = [conv for conv in conversations if len(conv) > min_conv_len]
+    conversations = [conv for conv in conversations if len(conv) >= min_conv_len]
     # Truncate conversations that are too long
     conversations = [conv[:max_conv_len] for conv in conversations]
+
+    # Filter out conversations with redacted term
+    conversations = [conv for conv in conversations if 'REDACTED' not in ''.join(conv)]
     
     full_conv = conversations
     first_utt = [conv[0] for conv in conversations]
@@ -226,11 +265,13 @@ def main():
     if args.dataset == "blended_skill_talk":
         dataset = prepare_bst_dataset(args)
     elif args.dataset == "meena":
-        dataset = prepare_meena_dataset()
+        dataset = prepare_meena_dataset(args.min_conv_len, args.max_conv_len)
     elif args.dataset == "wow":
-        dataset = prepare_wow_dataset()
+        dataset = prepare_wow_dataset(args.min_conv_len, args.max_conv_len)
     elif args.dataset == "persona":
-        dataset = prepare_personachat_dataset()
+        dataset = prepare_personachat_dataset(args.min_conv_len, args.max_conv_len)
+    elif args.dataset == "empath":
+        dataset = prepare_empath_dataset(args.min_conv_len, args.max_conv_len)
     else:
         raise ValueError(f"Unknown dataset: {args.dataset}")
     # print(dataset['test'][0]['full_conv'])
@@ -261,7 +302,7 @@ def main():
 
     # Default debug settings
     if args.debug:
-        dataset = dataset.select(range(0, 2)) if args.start_idx is None else dataset.select(range(args.start_idx, args.start_idx + 5))
+        dataset = dataset.select(range(0, 2)) if args.start_idx is None else dataset.select(range(args.start_idx, args.start_idx + 2))
         args.astar_top_k = 5 if (args.astar_top_k is None) else args.astar_top_k
         args.output_dir = 'debug'
     else:
@@ -337,7 +378,7 @@ def main():
                 contexts.append(inputs[0].tolist())
 
                 reply_ids = model.generate(input_ids=inputs,
-                                        num_beams=3,
+                                        num_beams=args.beam_size,
                                         do_astar=args.do_astar,
                                         do_cosine=args.do_cosine,
                                         target_utterance=target,
