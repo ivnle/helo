@@ -40,6 +40,8 @@ class Arguments:
     beam_size: int = field(default=3, metadata={"help": "Beam size."})
     min_conv_len: int = field(default=6, metadata={"help": "Min conversation length."})
     max_conv_len: int = field(default=8, metadata={"help": "Max conversation length."})
+    cosine_mode: str = field(default='extend', metadata={"help": "Cosine mode. Choices = [extend, extend-pos, no-extend]"})
+    do_bst_truncate: bool = field(default=False, metadata={"help": "Do bst truncate or not."})
     # lam: float = field(default=None, metadata={"help": "Lambda for annealing. outside exponential"})
     # trunk_dir: str = field(default=None, metadata={
     #                        "help": "Trunk directory for large files."})
@@ -220,6 +222,12 @@ def prepare_bst_dataset(args):
         full_conv = []
         for c, h in zip(context, human_utt):
             full_conv.append(c + h)
+        
+        if args.do_bst_truncate:
+            # Filter out conversations that are too short
+            full_conv = [conv for conv in full_conv if len(conv) >= args.min_conv_len]
+            # Truncate conversations that are too long
+            full_conv = [conv[:args.max_conv_len] for conv in full_conv]
 
         first_utt = [c[0] for c in full_conv]
         last_utt = [c[-1] for c in full_conv]
@@ -302,7 +310,7 @@ def main():
 
     # Default debug settings
     if args.debug:
-        dataset = dataset.select(range(0, 2)) if args.start_idx is None else dataset.select(range(args.start_idx, args.start_idx + 2))
+        dataset = dataset.select(range(0, 1)) if args.start_idx is None else dataset.select(range(args.start_idx, args.start_idx + 1))
         args.astar_top_k = 5 if (args.astar_top_k is None) else args.astar_top_k
         args.output_dir = 'debug'
     else:
@@ -318,11 +326,12 @@ def main():
     fp += f"_astar" if args.do_astar else "_cosine" if args.do_cosine else "_beam"
     fp += f"_prompt" if args.do_prompt else ""    
     # fp += f"_startidx{args.start_idx}"    
-    if args.do_astar:
+    if args.do_astar or args.do_cosine:
         fp += f"_str{args.astar_strength}" if (args.astar_strength is not None) else ""
         fp += f"_c{args.c}"
         fp += f"_top{args.astar_top_k}" if (args.astar_top_k is not None) else ""
-
+    if args.do_cosine:
+        fp += f"_{args.cosine_mode}"
     fp += f"_seed{args.seed}"
     fp += f"_debug" if args.debug else ""
     fp += '.jsonl'
@@ -337,10 +346,11 @@ def main():
         source_utt = sample['first_utt']
         target_utt = sample['last_utt']
         conv_len = sample['between_utt_len']
-        # if args.debug:
-            # source_utt = "My friends are cool but they eat too many carbs."
-            # target_utt = 'The glory of the Roman empire is forever.'
-            # conv_len = 10
+        if args.debug:
+            source_utt = "My friends are cool but they eat too many carbs."
+            target_utt = 'The glory of the Roman empire is forever.'
+            # target_utt = 'potatoe'
+            conv_len = 6
 
         logger.debug(f"Source: {source_utt}")
         logger.debug(f"Target: {target_utt}")
@@ -384,6 +394,7 @@ def main():
                                         target_utterance=target,
                                         astar_strength=get_strength(i, conv_len, args),
                                         astar_top_k=args.astar_top_k,
+                                        cosine_mode=args.cosine_mode,
                                         )
 
                 logger.debug(f"Utt {i}: {repr(tokenizer.batch_decode(reply_ids, skip_special_tokens=False)[0])}\n")
@@ -428,6 +439,7 @@ def main():
                                         target_utterance=target,
                                         astar_strength=get_strength(i, conv_len, args),
                                         astar_top_k=args.astar_top_k,
+                                        cosine_mode=args.cosine_mode,
                                         )
                 
                 # Update dialogue history and truncate

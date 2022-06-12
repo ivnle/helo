@@ -706,8 +706,8 @@ class AStarSearch(LogitsProcessor):
         self.strength = astar_strength # heuristic strength
 
         # For debugging
-        mname = "facebook/blenderbot-400M-distill"
-        self.tokenizer = AutoTokenizer.from_pretrained(mname)
+        # mname = "facebook/blenderbot-400M-distill"
+        # self.tokenizer = AutoTokenizer.from_pretrained(mname)
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # input_ids [bm_sz, seq_so_far]  = sequence so far
@@ -855,12 +855,13 @@ class CosineSearch(LogitsProcessor):
     r"""
     """
 
-    def __init__(self, model, encoder_input_ids, target_utterance, strength, top_k):
+    def __init__(self, model, encoder_input_ids, target_utterance, strength, top_k, mode='extend'):
         self.embed_tokens = model.get_input_embeddings() # [vocab_sz (8008), emb_dim (1280)]
         self.encoder_input_ids = encoder_input_ids        
         self.target_utterance = target_utterance
         self.top_k = top_k
         self.strength = strength
+        self.mode = mode
         # self.embed_positions = model.embed_positions 
         self.embed_positions =  model.get_encoder().embed_positions 
         # print(self.embed_positions)
@@ -870,8 +871,8 @@ class CosineSearch(LogitsProcessor):
         self.target_embedding = self.embed_tokens(target_utterance).mean(dim=1) # [1, emb_dim]
         
         # For debugging
-        mname = "facebook/blenderbot-400M-distill"
-        self.tokenizer = AutoTokenizer.from_pretrained(mname)
+        # mname = "facebook/blenderbot-400M-distill"
+        # self.tokenizer = AutoTokenizer.from_pretrained(mname)
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # input_ids [bm_sz, seq_so_far]
@@ -888,43 +889,49 @@ class CosineSearch(LogitsProcessor):
         # with 1e-9. Normalizing a beam with all 1e-9 results in big numbers relative to the beam that
         # was initialized with normal scores.        
 
-        """take cosine similarity of extended input_ids with embeddings of top_k tokens"""
-        # Extend sequence so far with potential next tokens
-        input_ids = input_ids.unsqueeze(1).expand(-1, self.top_k, -1) # [bmsz, top_k, seq_so_far]
-        potential_next_tokens = top_indices.unsqueeze(2) # [bmsz, top_k, 1]
-        input_ids = torch.cat([input_ids, potential_next_tokens], dim=-1) # [bmsz, top_k, seq_so_far+1]                
-        input_embeddings = self.embed_tokens(input_ids) # [bmsz, top_k, seq_so_far+1, emb_dim]
-        input_embeddings = input_embeddings.mean(dim=2) # [bmsz, top_k, emb_dim]
-                
-        cosine_similarity = torch.nn.functional.cosine_similarity(input_embeddings, 
-                                                                self.target_embedding, dim=-1) # [bmsz, top_k]
+        if self.mode == 'extend':
+            """take cosine similarity of extended input_ids with embeddings of top_k tokens"""
+            # Extend sequence so far with potential next tokens
+            input_ids = input_ids.unsqueeze(1).expand(-1, self.top_k, -1) # [bmsz, top_k, seq_so_far]
+            potential_next_tokens = top_indices.unsqueeze(2) # [bmsz, top_k, 1]
+            input_ids = torch.cat([input_ids, potential_next_tokens], dim=-1) # [bmsz, top_k, seq_so_far+1]                
+            input_embeddings = self.embed_tokens(input_ids) # [bmsz, top_k, seq_so_far+1, emb_dim]
+            input_embeddings = input_embeddings.mean(dim=2) # [bmsz, top_k, emb_dim]
+                    
+            cosine_similarity = torch.nn.functional.cosine_similarity(input_embeddings, 
+                                                                    self.target_embedding, dim=-1) # [bmsz, top_k]
 
-        """take cosine similarity of extended input_ids with embeddings of top_k tokens plus position embeddings"""
-        # # Extend sequence so far with potential next tokens
-        # input_ids = input_ids.unsqueeze(1).expand(-1, self.top_k, -1) # [bmsz, top_k, seq_so_far]
-        # potential_next_tokens = top_indices.unsqueeze(2) # [bmsz, top_k, 1]
-        # input_ids = torch.cat([input_ids, potential_next_tokens], dim=-1) # [bmsz, top_k, seq_so_far+1]                
-        # input_embeddings = self.embed_tokens(input_ids) # [bmsz, top_k, seq_so_far+1, emb_dim]
-        # embed_pos = self.embed_positions((1, input_ids.shape[-1])) # [seq_so_far+1, emb_dim]
-        # input_embeddings += embed_pos # [bmsz, top_k, seq_so_far+1, emb_dim]
-        # input_embeddings = input_embeddings.mean(dim=2) # [bmsz, top_k, emb_dim]
-                
-        # # print(input_embeddings.shape)
-        # # print(self.target_utterance.shape)
-        # # foo
-        # target_embeddings = self.embed_tokens(self.target_utterance) # [1, tgt_seq_len, emb_dim]
-        # embed_pos = self.embed_positions(self.target_utterance.shape) # [tgt_seq_len, emb_dim]        
-        # target_embeddings += embed_pos # [1, tgt_seq_len, emb_dim]
-        # target_embeddings = target_embeddings.mean(dim=1) # [1, emb_dim]
-        # # print(target_embeddings.shape)
+        elif self.mode == 'extend-pos':
+            """take cosine similarity of extended input_ids with embeddings of top_k tokens plus position embeddings"""
+            # Extend sequence so far with potential next tokens
+            input_ids = input_ids.unsqueeze(1).expand(-1, self.top_k, -1) # [bmsz, top_k, seq_so_far]
+            potential_next_tokens = top_indices.unsqueeze(2) # [bmsz, top_k, 1]
+            input_ids = torch.cat([input_ids, potential_next_tokens], dim=-1) # [bmsz, top_k, seq_so_far+1]                
+            input_embeddings = self.embed_tokens(input_ids) # [bmsz, top_k, seq_so_far+1, emb_dim]
+            embed_pos = self.embed_positions((1, input_ids.shape[-1])) # [seq_so_far+1, emb_dim]
+            input_embeddings += embed_pos # [bmsz, top_k, seq_so_far+1, emb_dim]
+            input_embeddings = input_embeddings.mean(dim=2) # [bmsz, top_k, emb_dim]
+                    
+            # print(input_embeddings.shape)
+            # print(self.target_utterance.shape)
+            # foo
+            target_embeddings = self.embed_tokens(self.target_utterance) # [1, tgt_seq_len, emb_dim]
+            embed_pos = self.embed_positions(self.target_utterance.shape) # [tgt_seq_len, emb_dim]        
+            target_embeddings += embed_pos # [1, tgt_seq_len, emb_dim]
+            target_embeddings = target_embeddings.mean(dim=1) # [1, emb_dim]
+            # print(target_embeddings.shape)
 
-        # cosine_similarity = torch.nn.functional.cosine_similarity(input_embeddings, 
-        #                                                         target_embeddings, dim=-1) # [bmsz, top_k]
+            cosine_similarity = torch.nn.functional.cosine_similarity(input_embeddings, 
+                                                                    target_embeddings, dim=-1) # [bmsz, top_k]
 
-        """take cosine similarity between individual token embeddings and average target embedding"""
-        # top_indices_embeddings = self.embed_tokens(top_indices) # [bmsz, top_k, emb_dim]
-        # cosine_similarity = torch.nn.functional.cosine_similarity(top_indices_embeddings, 
-        #                                                         self.target_embedding, dim=-1) # [bmsz, top_k]
+        elif self.mode == 'no-extend':
+            """take cosine similarity between individual token embeddings and average target embedding"""
+            top_indices_embeddings = self.embed_tokens(top_indices) # [bmsz, top_k, emb_dim]
+            cosine_similarity = torch.nn.functional.cosine_similarity(top_indices_embeddings, 
+                                                                    self.target_embedding, dim=-1) # [bmsz, top_k]
+        
+        else:
+            raise ValueError("Invalid mode: {}".format(self.mode))
         
         # max of 0
         cosine_similarity = torch.max(cosine_similarity, torch.zeros_like(cosine_similarity))                                            

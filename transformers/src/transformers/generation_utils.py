@@ -1122,6 +1122,7 @@ class GenerationMixin:
         astar_strength = model_kwargs.pop('astar_strength', None)
         astar_top_k = model_kwargs.pop('astar_top_k', None)
         target_utterance = model_kwargs.pop('target_utterance', None)
+        cosine_mode = model_kwargs.pop('cosine_mode', None)
         
         # 1. Set generation parameters if not already defined
         bos_token_id = bos_token_id if bos_token_id is not None else self.config.bos_token_id
@@ -1289,6 +1290,7 @@ class GenerationMixin:
                                         target_utterance=target_utterance,
                                         strength=astar_strength,
                                         top_k=astar_top_k,
+                                        mode=cosine_mode,
                                         )
         else:
             astar_processor = None
