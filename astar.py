@@ -46,6 +46,27 @@ class Arguments:
     # trunk_dir: str = field(default=None, metadata={
     #                        "help": "Trunk directory for large files."})
 
+def prepare_otters():
+    ood_test_src = "/home/ivanlee/cyoa/datasets/OTTers/data/out_of_domain/test/source.csv"
+    ood_test_tgt = "/home/ivanlee/cyoa/datasets/OTTers/data/out_of_domain/test/target.csv"
+
+    df_src = pd.read_csv(ood_test_src, names=['first_utt', "last_utt"], )
+    df_src.head()
+
+    df_tgt = pd.read_csv(ood_test_tgt, names=['between_utt'], )
+
+
+    # concatenate df_src and df_tgt
+    df = pd.concat([df_src, df_tgt], axis=1)
+    df = df.reindex(columns=['first_utt', "between_utt", 'last_utt'])
+    df['full_conv'] = df.values.tolist()
+    df['between_utt'] = df_tgt['between_utt'].apply(lambda x: [x])
+    df['between_utt_len'] = df['between_utt'].apply(lambda x: len(x))
+
+    dataset = datasets.Dataset.from_pandas(df)
+    dataset = datasets.DatasetDict({'test': dataset})
+    return dataset
+
 def prepare_empath_dataset(min_conv_len=6, max_conv_len=8):
     dataset = datasets.load_dataset("empathetic_dialogues")
     conversations = dataset['test']
@@ -314,7 +335,8 @@ def main():
         args.astar_top_k = 5 if (args.astar_top_k is None) else args.astar_top_k
         args.output_dir = 'debug'
     else:
-        dataset = dataset.select(range(args.start_idx, args.start_idx + args.max_samples))
+        end_range = min(args.start_idx + args.max_samples, len(dataset))
+        dataset = dataset.select(range(args.start_idx, end_range))
     
     # Move this file path making stuff into a function
     fp = os.path.join(args.output_dir, f"{args.dataset.replace('_', '-')}")
@@ -346,11 +368,11 @@ def main():
         source_utt = sample['first_utt']
         target_utt = sample['last_utt']
         conv_len = sample['between_utt_len']
-        if args.debug:
-            source_utt = "My friends are cool but they eat too many carbs."
-            target_utt = 'The glory of the Roman empire is forever.'
-            # target_utt = 'potatoe'
-            conv_len = 6
+        # if args.debug:
+        #     source_utt = "My friends are cool but they eat too many carbs."
+        #     target_utt = 'The glory of the Roman empire is forever.'
+        #     # target_utt = 'potatoe'
+        #     conv_len = 6
 
         logger.debug(f"Source: {source_utt}")
         logger.debug(f"Target: {target_utt}")

@@ -1,15 +1,34 @@
 # %%
+from importlib.metadata import files
 import pandas as pd
 from datasets import load_metric
+from dataclasses import dataclass, field
 import torch
 from transformers import BlenderbotTokenizer, BlenderbotForConditionalGeneration, AutoTokenizer
 import numpy as np
 import os
+from tqdm import tqdm
+import json
+import logging
+import transformers
+import sys
+import jsonlines
 
 SEP_TOK = '    '
 
-os.environ["HF_DATASETS_CACHE"] = '/trunk/ivanlee/hf_cache'
-os.environ["TRANSFORMERS_CACHE"] = '/trunk/ivanlee/hf_cache'
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Arguments:
+    experiment: str = field(default=None, metadata={
+                            "help": "Which experiment to run."})
+    output_dir: str = field(default=None, metadata={
+                            "help": "Where to save the output."})
+    model: str = field(default=None, metadata={"help": "Which model to use."})
+    debug: bool = field(default=False, metadata={
+                        "help": "Whether to run in debug mode."})
+
 
 def compute_bleu(df):
     predictions = df['middle_utt']
@@ -24,15 +43,15 @@ def compute_bleu(df):
                                 references=references)
 
     return {'bleu_score': round(results['score'], 2),
-            'bleu_precisions': [round(x, 1) for x in results['precisions']]}
+            # 'bleu_precisions': [round(x, 1) for x in results['precisions']]
+            }
 
 
-def compute_smooth(df, do_human=False):
-    # cp = 'facebook/blenderbot-400M-distill'
-    cp = "facebook/blenderbot-1B-distill"
+def compute_smooth(df, args, do_human=False):
+    cp = args.model
     model = BlenderbotForConditionalGeneration.from_pretrained(cp)
     model.to('cuda')
-    tokenizer = AutoTokenizer.from_pretrained(cp)    
+    tokenizer = AutoTokenizer.from_pretrained(cp)
 
     first_utt = df['first_utt']
     predictions = df['gold_utt'] if do_human else df['middle_utt']
@@ -111,13 +130,97 @@ def compute_smooth(df, do_human=False):
         ppl_mid.append(np.mean(conv_ppls[1:-1]))
 
     return {'ppl': round(np.mean(dataset_ppl), 2),
-            'smooth_cov': round(np.mean(dataset_smooth_cov), 2),
             'cov': round(np.mean(dataset_cov), 2),
-            'std': round(np.mean(dataset_std), 2),
+            'smooth_cov': round(np.mean(dataset_smooth_cov), 2),
+            # 'std': round(np.mean(dataset_std), 2),
             'ppl_first': round(np.mean(ppl_first), 2),
             'ppl_last': round(np.mean(ppl_last), 2),
-            'ppl_mid': round(np.mean(ppl_mid), 2)
+            # 'ppl_mid': round(np.mean(ppl_mid), 2)
             }
+
+
+def empath(args):
+    data = 'empath'
+    files_to_eval = [
+        f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+    ]
+    output = {}
+    output['files_to_eval'] = files_to_eval
+    output['expected_samples'] = 134
+    output['do_human'] = True
+    return output
+
+
+def persona(args):
+    data = 'persona'
+    files_to_eval = [
+        f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+    ]
+    output = {}
+    output['files_to_eval'] = files_to_eval
+    output['expected_samples'] = 250
+    output['do_human'] = True
+    return output
+
+
+def meena(args):
+
+    files_to_eval = [
+        "gen/meena_test_samples0:250_tab_beam_seed0.jsonl",
+        "gen/meena_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+        "gen/meena_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        "gen/meena_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        "gen/meena_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+    ]
+    output = {}
+    output['files_to_eval'] = files_to_eval
+    output['expected_samples'] = 250
+    output['do_human'] = True
+    return output
+
+
+def astar_hyper_search(args):
+    # cosine hyperparameter sweep
+    files_to_eval = []
+    if args.debug:
+        files_to_eval.append(
+            f"gen/blended-skill-talk_test_samples0:250_tab_cosine_str5_c1.0_top40_extend_seed0.jsonl")
+    else:
+        for c in [-1.0, 0.0, 1.0, 2.0, 3.0, 4.0]:
+            for lam in [5, 10, 15, 20, 25, 30]:
+                files_to_eval.append(
+                    f"gen/blended-skill-talk_test_samples0:50_tab_astar_str{lam}_c{c}_top40_seed0.jsonl")
+    output = {}
+    output['files_to_eval'] = files_to_eval
+    output['expected_samples'] = 50
+    output['do_human'] = False
+    return output
+
+
+def cosine_hyper_search(args):
+    # cosine hyperparameter sweep
+    files_to_eval = []
+    if args.debug:
+        files_to_eval.append(
+            f"gen/blended-skill-talk_test_samples0:250_tab_cosine_str5_c1.0_top40_extend_seed0.jsonl")
+    else:
+        for c in [-1.0, 0.0, 1.0, 2.0, 3.0, 4.0]:
+            for lam in [5, 10, 20, 40, 80, 160]:
+                files_to_eval.append(
+                    f"gen/blended-skill-talk_test_samples0:250_tab_cosine_str{lam}_c{c}_top40_extend_seed0.jsonl")
+    output = {}
+    output['files_to_eval'] = files_to_eval
+    output['expected_samples'] = 250
+    output['do_human'] = False
+    return output
 
 
 def main():
@@ -125,13 +228,13 @@ def main():
     files_to_eval = [
         # "gen/blended-skill-talk_test_samples0:50_raw_beam_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_raw_beam_prompt_seed0.jsonl",
-        
-        "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top5_seed0.jsonl",
-        "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top10_seed0.jsonl",
-        "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top20_seed0.jsonl",
-        "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top40_seed0.jsonl",
-        "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top80_seed0.jsonl",
-        
+
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top5_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top10_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top20_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top80_seed0.jsonl",
+
         # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c0.0_top40_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top40_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c0.0_top40_seed0.jsonl",
@@ -148,20 +251,34 @@ def main():
 
         # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c1.0_top40_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c1.0_top40_seed0.jsonl",
-        
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c2.0_top40_seed0.jsonl",        
+
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c1.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c1.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c1.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c1.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c1.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c1.0_top40_seed0.jsonl",
+
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c2.0_top40_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c2.0_top40_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c2.0_top40_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c2.0_top40_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c2.0_top40_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c2.0_top40_seed0.jsonl",
 
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c1.0_top40_seed0.jsonl",        
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c1.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c3.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c3.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c3.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c3.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c3.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c3.0_top40_seed0.jsonl",
+
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c4.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c4.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c4.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c4.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c4.0_top40_seed0.jsonl",
+        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c4.0_top40_seed0.jsonl",
 
         # """ Data sets, c2, str10 vs baselines """
         # "gen/blended-skill-talk_test_samples0:50_tab_beam_seed0.jsonl",
@@ -173,17 +290,17 @@ def main():
         # "gen/persona_test_samples0:50_tab_beam_prompt_seed0.jsonl",
         # "gen/persona_test_samples0:50_tab_cosine_str50_c0.0_top40_extend_seed0.jsonl",
         # "gen/persona_test_samples0:50_tab_astar_str10_c2.0_top40_seed0.jsonl",
-        
+
         # "gen/meena_test_samples0:50_tab_beam_seed0.jsonl",
         # "gen/meena_test_samples0:50_tab_beam_prompt_seed0.jsonl",
         # "gen/meena_test_samples0:50_tab_cosine_str50_c0.0_top40_extend_seed0.jsonl",
         # "gen/meena_test_samples0:50_tab_astar_str10_c2.0_top40_seed0.jsonl",
-        
+
         # "gen/empath_test_samples0:50_tab_beam_seed0.jsonl",
         # "gen/empath_test_samples0:50_tab_beam_prompt_seed0.jsonl",
         # "gen/empath_test_samples0:50_tab_cosine_str50_c0.0_top40_extend_seed0.jsonl",
         # "gen/empath_test_samples0:50_tab_astar_str10_c2.0_top40_seed0.jsonl",
-        
+
         # "gen/wow_test_samples0:50_tab_beam_seed0.jsonl",
         # "gen/wow_test_samples0:50_tab_beam_prompt_seed0.jsonl",
         # "gen/wow_test_samples0:50_tab_cosine_str50_c0.0_top40_extend_seed0.jsonl",
@@ -214,7 +331,7 @@ def main():
         # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str110_c0.0_top40_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str130_c0.0_top40_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str150_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str160_c0.0_top40_seed0.jsonl",        
+        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str160_c0.0_top40_seed0.jsonl",
 
         # "gen/blended-skill-talk_test_samples0:50_tab_beam_seed0.jsonl",
         # "gen/blended-skill-talk_test_samples0:50_tab_beam_prompt_seed0.jsonl",
@@ -222,8 +339,10 @@ def main():
         # "debug/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top40_seed0.jsonl",
         # "debug/blended-skill-talk_test_samples0:50_tab_astar_str15_c0.0_top40_seed0.jsonl",
         # "debug/blended-skill-talk_test_samples0:50_tab_astar_str20_c0.0_top40_seed0.jsonl",
-        
-        
+
+
+
+
         # 'gen/meena_test_samples0:50_tab_beam_seed0.jsonl',
         # "/home/ivanlee/cyoa/gen/meena_test_samples0:50_tab_beam_prompt_seed0.jsonl",
 
@@ -253,6 +372,9 @@ def main():
         # "/home/ivanlee/cyoa/gen/persona_test_samples0:50_tab_beam_seed0.jsonl",
         # "/home/ivanlee/cyoa/gen/wow_test_samples0:50_tab_beam_seed0.jsonl",
 
+        # cosine hyperparameter sweep
+
+
     ]
 
     # for i, f in enumerate(files_to_eval):
@@ -263,21 +385,76 @@ def main():
     #     print(compute_smooth(df, do_human=False))
     #     print()
 
-    for i, f in enumerate(files_to_eval):
+    parser = transformers.HfArgumentParser(
+        (Arguments))
+    args = parser.parse_args_into_dataclasses()[0]
+
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+    if args.debug:
+        logger.setLevel('DEBUG')
+    logger.warning(args)
+
+    if args.experiment == 'cosine-hyper-sweep':
+        exp_cfg = cosine_hyper_search(args)
+    elif args.experiment == 'astar_hyper_search':
+        exp_cfg = astar_hyper_search(args)
+    elif args.experiment == 'persona':
+        exp_cfg = persona(args)
+    elif args.experiment == 'meena':
+        exp_cfg = meena(args)
+    elif args.experiment == 'empath':
+        exp_cfg = empath(args)
+    else:
+        raise ValueError('Unknown experiment: {}'.format(args.experiment))
+
+    files_to_eval = exp_cfg['files_to_eval']
+    expected_samples = exp_cfg['expected_samples']
+    do_human = exp_cfg['do_human']
+
+    # Construct output filename
+    fp = os.path.join(args.output_dir, args.experiment + '.jsonl')
+    if not os.path.exists(fp):
+        with open(fp, 'w') as f:
+            pass
+    logger.warning(f'Writing to {fp}')
+
+    # results = []
+    for i, f in enumerate(tqdm(files_to_eval)):
         df = pd.read_json(f, lines=True)
-        if len(df) != 50:
-            print('WARNING: {} has {} samples'.format(f, len(df)))
+        if len(df) != expected_samples:
+            logger.warning('WARNING: {} has {} samples'.format(f, len(df)))
 
         # if i % 4 == 0:
-        if i == 0:
-            print('human:', f.split('_')[0])
-            print(compute_smooth(df, do_human=True))
-            print()
+        if do_human and i == 0:
+            # print('human:', f.split('_')[0])
+            out_human = {'file': 'human', 'bleu_score': 100}
+            out_human.update(compute_smooth(df, args, do_human=True))
+            # results.append(out_human)
+            with jsonlines.open(fp, mode='a') as writer:
+                writer.write(out_human)
 
-        print(f)
-        print(compute_bleu(df))
-        print(compute_smooth(df))
-        print()
+            # print(out_human.pop('file'))
+            # print(out_human)
+
+        out = {'file': f}
+        out.update(compute_bleu(df))
+        out.update(compute_smooth(df, args))
+        # results.append(out)
+
+        with jsonlines.open(fp, mode='a') as writer:
+            writer.write(out)
+
+        # print(out.pop('file'))
+        # print(out)
+
+    # print(results)
+
+    # with open(fp, 'w') as f:
+    #     json.dump(results, f)
 
 
 if __name__ == "__main__":
