@@ -13,6 +13,7 @@ import logging
 import transformers
 import sys
 import jsonlines
+import mauve 
 
 SEP_TOK = '    '
 
@@ -29,6 +30,31 @@ class Arguments:
     debug: bool = field(default=False, metadata={
                         "help": "Whether to run in debug mode."})
 
+
+def compute_mauve(df, do_human=False):
+    first_utt = df['first_utt']
+    target_utt = df['target_utt']
+    predictions = df['gold_utt'] if do_human else df['middle_utt']
+    references = df['gold_utt']
+
+    updated_pred = []
+    updated_ref = []
+    for (fu, p, tu) in zip(first_utt, predictions, target_utt):
+        updated_pred.append([fu] + p + [tu])
+    for (fu, p, tu) in zip(first_utt, references, target_utt):
+        updated_ref.append([fu] + p + [tu])
+
+    updated_pred = [' '.join(x) for x in updated_pred]
+    updated_ref = [' '.join(x) for x in updated_ref]
+
+    # print(updated_pred[0])
+    # print(updated_ref[0])
+    # foo
+    
+    mauve_output = mauve.compute_mauve(q_text=updated_pred, p_text=updated_ref)
+    
+    return {'mauve': round(mauve_output.mauve, 2),
+            }
 
 def compute_bleu(df):
     predictions = df['middle_utt']
@@ -139,6 +165,38 @@ def compute_smooth(df, args, do_human=False):
             }
 
 
+def bst(args):
+    data = 'blended-skill-talk'
+    files_to_eval = [
+        f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+    ]
+    output = {}
+    output['files_to_eval'] = files_to_eval
+    output['expected_samples'] = 250
+    output['do_human'] = True
+    return output
+
+
+def wow(args):
+    data = 'wow'
+    files_to_eval = [
+        f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+    ]
+    output = {}
+    output['files_to_eval'] = files_to_eval
+    output['expected_samples'] = 250
+    output['do_human'] = True
+    return output
+
+
 def empath(args):
     data = 'empath'
     files_to_eval = [
@@ -187,6 +245,22 @@ def meena(args):
     return output
 
 
+def combined(args):
+    data = 'combined'
+    files_to_eval = [
+        f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+    ]
+    output = {}
+    output['files_to_eval'] = files_to_eval
+    output['expected_samples'] = 964
+    output['do_human'] = True
+    return output
+
+
 def astar_hyper_search(args):
     # cosine hyperparameter sweep
     files_to_eval = []
@@ -224,159 +298,6 @@ def cosine_hyper_search(args):
 
 
 def main():
-
-    files_to_eval = [
-        # "gen/blended-skill-talk_test_samples0:50_raw_beam_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_raw_beam_prompt_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top5_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top10_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top20_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top80_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c0.0_top40_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c-1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c-1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c-1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c-1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c-1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c-1.0_top40_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c1.0_top40_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c1.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c1.0_top40_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c2.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c2.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c2.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c2.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c2.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c2.0_top40_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c3.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c3.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c3.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c3.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c3.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c3.0_top40_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c4.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c4.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c4.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str20_c4.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str25_c4.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str30_c4.0_top40_seed0.jsonl",
-
-        # """ Data sets, c2, str10 vs baselines """
-        # "gen/blended-skill-talk_test_samples0:50_tab_beam_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_beam_prompt_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str50_c0.0_top40_extend_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c1.0_top40_seed0.jsonl",
-
-        # "gen/persona_test_samples0:50_tab_beam_seed0.jsonl",
-        # "gen/persona_test_samples0:50_tab_beam_prompt_seed0.jsonl",
-        # "gen/persona_test_samples0:50_tab_cosine_str50_c0.0_top40_extend_seed0.jsonl",
-        # "gen/persona_test_samples0:50_tab_astar_str10_c2.0_top40_seed0.jsonl",
-
-        # "gen/meena_test_samples0:50_tab_beam_seed0.jsonl",
-        # "gen/meena_test_samples0:50_tab_beam_prompt_seed0.jsonl",
-        # "gen/meena_test_samples0:50_tab_cosine_str50_c0.0_top40_extend_seed0.jsonl",
-        # "gen/meena_test_samples0:50_tab_astar_str10_c2.0_top40_seed0.jsonl",
-
-        # "gen/empath_test_samples0:50_tab_beam_seed0.jsonl",
-        # "gen/empath_test_samples0:50_tab_beam_prompt_seed0.jsonl",
-        # "gen/empath_test_samples0:50_tab_cosine_str50_c0.0_top40_extend_seed0.jsonl",
-        # "gen/empath_test_samples0:50_tab_astar_str10_c2.0_top40_seed0.jsonl",
-
-        # "gen/wow_test_samples0:50_tab_beam_seed0.jsonl",
-        # "gen/wow_test_samples0:50_tab_beam_prompt_seed0.jsonl",
-        # "gen/wow_test_samples0:50_tab_cosine_str50_c0.0_top40_extend_seed0.jsonl",
-        # "gen/wow_test_samples0:50_tab_astar_str10_c2.0_top40_seed0.jsonl",
-
-        # cosine extend-pos test
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str20_c0.0_top40_extend-pos_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str40_c0.0_top40_extend-pos_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str80_c0.0_top40_extend-pos_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str160_c0.0_top40_extend-pos_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str200_c0.0_top40_extend-pos_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str240_c0.0_top40_extend-pos_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str280_c0.0_top40_extend-pos_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str320_c0.0_top40_extend-pos_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str420_c0.0_top40_extend-pos_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str520_c0.0_top40_extend-pos_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str620_c0.0_top40_extend-pos_seed0.jsonl",
-
-        # """ cosine str test """
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str10_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str20_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str40_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str50_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str60_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str70_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str80_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str90_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str110_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str130_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str150_c0.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_cosine_str160_c0.0_top40_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:50_tab_beam_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_beam_prompt_seed0.jsonl",
-        # "debug/blended-skill-talk_test_samples0:50_tab_astar_str5_c0.0_top40_seed0.jsonl",
-        # "debug/blended-skill-talk_test_samples0:50_tab_astar_str10_c0.0_top40_seed0.jsonl",
-        # "debug/blended-skill-talk_test_samples0:50_tab_astar_str15_c0.0_top40_seed0.jsonl",
-        # "debug/blended-skill-talk_test_samples0:50_tab_astar_str20_c0.0_top40_seed0.jsonl",
-
-
-
-
-        # 'gen/meena_test_samples0:50_tab_beam_seed0.jsonl',
-        # "/home/ivanlee/cyoa/gen/meena_test_samples0:50_tab_beam_prompt_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:980_tab_beam_seed0.jsonl",
-        # "gen/gen_beam_split-test_samples50_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_beam_seed0.jsonl",
-        # "gen/gen_beam_do-prompt_split-test_samples50_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_beam_prompt_seed0.jsonl",
-
-        # "debug/gen_split-test_samples50_strength5_topk40_seed0.jsonl",
-        # "debug/gen_split-test_samples50_strength10_topk40_seed0.jsonl",
-        # "debug/gen_split-test_samples50_strength15_topk40_seed0.jsonl",
-        # "debug/gen_split-test_samples50_strength20_topk40_seed0.jsonl",
-
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str5_c2.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str10_c2.0_top40_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_tab_astar_str15_c2.0_top40_seed0.jsonl",
-        # "gen/gen_astar_delimit-tab_split-test_samples50_strength5_c2.0_topk40_seed0.jsonl",
-        # "gen/gen_astar_delimit-tab_split-test_samples50_strength10_topk40_seed0.jsonl"
-        # "gen/blended-skill-talk_test_samples0:50_raw_beam_seed0.jsonl",
-        # "gen/blended-skill-talk_test_samples0:50_raw_beam_prompt_seed0.jsonl",
-        # "gen/gen_astar_delimit-raw_split-test_samples50_strength10_topk40_seed0.jsonl",
-
-        # "/home/ivanlee/cyoa/gen/blended-skill-talk_test_samples0:50_tab_beam_seed0.jsonl",
-        # "/home/ivanlee/cyoa/gen/empath_test_samples0:50_tab_beam_seed0.jsonl",
-        # "/home/ivanlee/cyoa/gen/meena_test_samples0:50_tab_beam_seed0.jsonl",
-        # "/home/ivanlee/cyoa/gen/persona_test_samples0:50_tab_beam_seed0.jsonl",
-        # "/home/ivanlee/cyoa/gen/wow_test_samples0:50_tab_beam_seed0.jsonl",
-
-        # cosine hyperparameter sweep
-
-
-    ]
-
     # for i, f in enumerate(files_to_eval):
     #     df = pd.read_json(f, lines=True)
     #     if len(df) != 50:
@@ -400,6 +321,10 @@ def main():
 
     if args.experiment == 'cosine-hyper-sweep':
         exp_cfg = cosine_hyper_search(args)
+    elif args.experiment == 'blended-skill-talk':
+        exp_cfg = bst(args)
+    elif args.experiment == 'wow':
+        exp_cfg = wow(args)
     elif args.experiment == 'astar_hyper_search':
         exp_cfg = astar_hyper_search(args)
     elif args.experiment == 'persona':
@@ -408,6 +333,8 @@ def main():
         exp_cfg = meena(args)
     elif args.experiment == 'empath':
         exp_cfg = empath(args)
+    elif args.experiment == 'combined':
+        exp_cfg = combined(args)
     else:
         raise ValueError('Unknown experiment: {}'.format(args.experiment))
 
@@ -428,19 +355,19 @@ def main():
         if len(df) != expected_samples:
             logger.warning('WARNING: {} has {} samples'.format(f, len(df)))
 
-        # if i % 4 == 0:
         if do_human and i == 0:
             # print('human:', f.split('_')[0])
-            out_human = {'file': 'human', 'bleu_score': 100}
+            out_human = {'file': 'human', 'bleu_score': 100, 'mauve': 1}
             out_human.update(compute_smooth(df, args, do_human=True))
             # results.append(out_human)
             with jsonlines.open(fp, mode='a') as writer:
                 writer.write(out_human)
 
-            # print(out_human.pop('file'))
-            # print(out_human)
+            print(out_human.pop('file'))
+            print(out_human)
 
         out = {'file': f}
+        out.update(compute_mauve(df))
         out.update(compute_bleu(df))
         out.update(compute_smooth(df, args))
         # results.append(out)

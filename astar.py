@@ -301,6 +301,8 @@ def main():
         dataset = prepare_personachat_dataset(args.min_conv_len, args.max_conv_len)
     elif args.dataset == "empath":
         dataset = prepare_empath_dataset(args.min_conv_len, args.max_conv_len)
+    elif args.dataset == "otters":
+        dataset = prepare_otters()
     else:
         raise ValueError(f"Unknown dataset: {args.dataset}")
     # print(dataset['test'][0]['full_conv'])
