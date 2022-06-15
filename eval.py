@@ -13,7 +13,7 @@ import logging
 import transformers
 import sys
 import jsonlines
-import mauve 
+import mauve
 
 SEP_TOK = '    '
 
@@ -31,7 +31,7 @@ class Arguments:
                         "help": "Whether to run in debug mode."})
 
 
-def compute_mauve(df, do_human=False):
+def compute_mauve(df, do_human=False, debug=False):
     first_utt = df['first_utt']
     target_utt = df['target_utt']
     predictions = df['gold_utt'] if do_human else df['middle_utt']
@@ -47,14 +47,20 @@ def compute_mauve(df, do_human=False):
     updated_pred = [' '.join(x) for x in updated_pred]
     updated_ref = [' '.join(x) for x in updated_ref]
 
+    if debug:
+        pass
+        updated_pred = ['The glory of the empire is forever', 'The otter crows at dawn']
+        updated_ref = ['The glory of the empire is forever', 'The otter crows at dawn']
+
     # print(updated_pred[0])
     # print(updated_ref[0])
     # foo
-    
+
     mauve_output = mauve.compute_mauve(q_text=updated_pred, p_text=updated_ref)
-    
+
     return {'mauve': round(mauve_output.mauve, 2),
             }
+
 
 def compute_bleu(df):
     predictions = df['middle_utt']
@@ -357,31 +363,21 @@ def main():
 
         if do_human and i == 0:
             # print('human:', f.split('_')[0])
-            out_human = {'file': 'human', 'bleu_score': 100, 'mauve': 1}
+            out_human = {'file': 'human', 'bleu_score': 100}
             out_human.update(compute_smooth(df, args, do_human=True))
+            out_human.update({'mauve': 1})
             # results.append(out_human)
             with jsonlines.open(fp, mode='a') as writer:
                 writer.write(out_human)
 
-            print(out_human.pop('file'))
-            print(out_human)
-
         out = {'file': f}
-        out.update(compute_mauve(df))
         out.update(compute_bleu(df))
         out.update(compute_smooth(df, args))
-        # results.append(out)
+        out.update(compute_mauve(df, debug=args.debug))
+        
 
         with jsonlines.open(fp, mode='a') as writer:
             writer.write(out)
-
-        # print(out.pop('file'))
-        # print(out)
-
-    # print(results)
-
-    # with open(fp, 'w') as f:
-    #     json.dump(results, f)
 
 
 if __name__ == "__main__":

@@ -69,7 +69,7 @@ def prepare_otters():
 
 def prepare_empath_dataset(min_conv_len=6, max_conv_len=8):
     dataset = datasets.load_dataset("empathetic_dialogues")
-    conversations = dataset['test']
+    conversations = dataset['validation']
     print(len(conversations))
     conversations = conversations.map(lambda examples: {'utt': [[x.replace('_comma_', ',')] for x in examples['utterance']]}, batched=True)
     # conversations = conversations.map(lambda examples: {'utt': [[x] for x in examples['utterance']]}, batched=True)
@@ -337,13 +337,13 @@ def main():
         args.astar_top_k = 5 if (args.astar_top_k is None) else args.astar_top_k
         args.output_dir = 'debug'
     else:
-        end_range = min(args.start_idx + args.max_samples, len(dataset))
+        end_range = min(args.max_samples, len(dataset))
         dataset = dataset.select(range(args.start_idx, end_range))
-    
+        
     # Move this file path making stuff into a function
     fp = os.path.join(args.output_dir, f"{args.dataset.replace('_', '-')}")
     fp += f"_{args.split}"
-    fp += f"_samples{args.start_idx}:{args.max_samples}"
+    fp += f"_samples{args.start_idx}:{end_range}"
     # fp += f"_{args.dataset}"
     fp += f"_{args.delimiter}"    
 
