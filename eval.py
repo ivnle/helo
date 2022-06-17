@@ -152,7 +152,7 @@ def compute_smooth(df, args, do_human=False):
         conv_ppls.append(np.mean(utt_ppls))
         max_ppl_per_conv.append(np.max(utt_ppls))
 
-        diff_conv_ppls = np.abs(np.diff(conv_ppls))
+        diff_conv_ppls = np.abs(np.diff(utt_ppls))
         # assert(len(conv_ppls) == len(diff_conv_ppls) + 1)
         # print(conv_ppls)
         # print(diff_conv_ppls)
@@ -165,18 +165,18 @@ def compute_smooth(df, args, do_human=False):
             print('utt:', utt)
             print(utt_ppl.item())
             print(smoothness)
-            print([round(c) for c in conv_ppls])
+            print([round(c) for c in utt_ppls])
             print(diff_conv_ppls)
             print(np.std(diff_conv_ppls))
             print(np.abs(np.mean(diff_conv_ppls)))
             print()
 
-        dataset_cov.append(np.std(conv_ppls) / np.abs(np.mean(conv_ppls)))
-        dataset_std.append(np.std(conv_ppls))
+        dataset_cov.append(np.std(utt_ppls) / np.abs(np.mean(utt_ppls)))
+        dataset_std.append(np.std(utt_ppls))
 
-        ppl_first.append(conv_ppls[0])
-        ppl_last.append(conv_ppls[-1])
-        ppl_mid.append(np.mean(conv_ppls[1:-1]))
+        ppl_first.append(utt_ppls[0])
+        ppl_last.append(utt_ppls[-1])
+        ppl_mid.append(np.mean(utt_ppls[1:-1]))
 
     return {'ppl': round(np.mean(conv_ppls), 2),
             'cov': round(np.mean(dataset_cov), 2),
