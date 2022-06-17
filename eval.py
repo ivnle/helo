@@ -29,6 +29,7 @@ class Arguments:
     model: str = field(default=None, metadata={"help": "Which model to use."})
     debug: bool = field(default=False, metadata={
                         "help": "Whether to run in debug mode."})
+    do_mauve: bool = field(default=False, metadata={})
 
 
 def compute_mauve(df, do_human=False, debug=False):
@@ -62,13 +63,27 @@ def compute_mauve(df, do_human=False, debug=False):
             }
 
 
-def compute_bleu(df):
-    predictions = df['middle_utt']
-    references = df['gold_utt']
-    predictions = [' '.join(x) for x in predictions]
-    references = [[' '.join(x)] for x in references]
-    # print(predictions[0])
-    # print(references[0])
+def compute_bleu(df, args):
+    if args.experiment == 'otters':
+        df1 = df.groupby('first_utt')['gold_utt'].apply(list).reset_index(name='new')
+        df = df.merge(df1, on='first_utt')
+        df = df.drop_duplicates(subset=['first_utt'])
+        predictions = df['middle_utt']
+        references = df['new']
+
+        # print(predictions[0])
+        # print(references[0])
+        
+        predictions = [' '.join(x) for x in predictions]
+        references = [[y[0] for y in x ] for x in references ]
+
+    else:
+        predictions = df['middle_utt']
+        references = df['gold_utt']
+        predictions = [' '.join(x) for x in predictions]
+        references = [[' '.join(x)] for x in references]
+        # print(predictions[0])
+        # print(references[0])
 
     sacrebleu = load_metric("sacrebleu")
     results = sacrebleu.compute(predictions=predictions,
@@ -96,20 +111,21 @@ def compute_smooth(df, args, do_human=False):
     # concatenate first_utt, predictions, target_utt
 
     df['concat_gen'] = first_utt + predictions + target_utt
-    df['concat_gen'].iloc[0]
+    # df['concat_gen'].iloc[0]
 
     conversations = df['concat_gen'].to_list()
 
-    dataset_ppl = []
+    conv_ppls = []
     dataset_cov = []
     dataset_smooth_cov = []
     dataset_std = []
     ppl_first = []
     ppl_last = []
     ppl_mid = []
+    max_ppl_per_conv = []
 
     for conv_idx, conv in enumerate(conversations):
-        conv_ppls = []
+        utt_ppls = []
         for utt_idx, utt in enumerate(conv[1:], 1):
             dh_str = SEP_TOK.join(conv[:utt_idx])
 
@@ -125,7 +141,7 @@ def compute_smooth(df, args, do_human=False):
                                labels=labels, return_dict=True)
             neg_log_like = output['loss'].mean()
             utt_ppl = torch.exp(neg_log_like)
-            conv_ppls.append(utt_ppl.item())
+            utt_ppls.append(utt_ppl.item())
 
             # if utt_ppl.item() > 500 or utt_ppl.item() < 3:
             # # if utt == '':
@@ -133,7 +149,8 @@ def compute_smooth(df, args, do_human=False):
             #     print('utt:', utt)
             #     print(utt_ppl.item())
 
-        dataset_ppl.append(np.mean(conv_ppls))
+        conv_ppls.append(np.mean(utt_ppls))
+        max_ppl_per_conv.append(np.max(utt_ppls))
 
         diff_conv_ppls = np.abs(np.diff(conv_ppls))
         # assert(len(conv_ppls) == len(diff_conv_ppls) + 1)
@@ -161,15 +178,35 @@ def compute_smooth(df, args, do_human=False):
         ppl_last.append(conv_ppls[-1])
         ppl_mid.append(np.mean(conv_ppls[1:-1]))
 
-    return {'ppl': round(np.mean(dataset_ppl), 2),
+    return {'ppl': round(np.mean(conv_ppls), 2),
             'cov': round(np.mean(dataset_cov), 2),
-            'smooth_cov': round(np.mean(dataset_smooth_cov), 2),
+            'max_ppl': round(np.mean(max_ppl_per_conv), 2),
+            # 'smooth_cov': round(np.mean(dataset_smooth_cov), 2),            
             # 'std': round(np.mean(dataset_std), 2),
             'ppl_first': round(np.mean(ppl_first), 2),
             'ppl_last': round(np.mean(ppl_last), 2),
             # 'ppl_mid': round(np.mean(ppl_mid), 2)
             }
 
+def otters(args):
+    data = 'otters'
+    files_to_eval = [
+        # f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+        # f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+        # f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        f"gen/{data}_test_samples0:1130_tab_astar_str5_c0.0_top40_seed0.jsonl",
+        f"gen/{data}_test_samples0:1130_tab_astar_str10_c0.0_top40_seed0.jsonl",
+        f"gen/{data}_test_samples0:1130_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        f"gen/{data}_test_samples0:1130_tab_astar_str20_c0.0_top40_seed0.jsonl",
+        f"gen/{data}_test_samples0:1130_tab_astar_str40_c0.0_top40_seed0.jsonl",
+        f"gen/{data}_test_samples0:1130_tab_astar_str80_c0.0_top40_seed0.jsonl",
+        
+    ]
+    output = {}
+    output['files_to_eval'] = files_to_eval
+    output['expected_samples'] = 1130
+    output['do_human'] = False
+    return output
 
 def bst(args):
     data = 'blended-skill-talk'
@@ -341,6 +378,8 @@ def main():
         exp_cfg = empath(args)
     elif args.experiment == 'combined':
         exp_cfg = combined(args)
+    elif args.experiment == 'otters':
+        exp_cfg = otters(args)
     else:
         raise ValueError('Unknown experiment: {}'.format(args.experiment))
 
@@ -365,15 +404,17 @@ def main():
             # print('human:', f.split('_')[0])
             out_human = {'file': 'human', 'bleu_score': 100}
             out_human.update(compute_smooth(df, args, do_human=True))
-            out_human.update({'mauve': 1})
+            if args.do_mauve:
+                out_human.update({'mauve': 1})
             # results.append(out_human)
             with jsonlines.open(fp, mode='a') as writer:
                 writer.write(out_human)
 
         out = {'file': f}
-        out.update(compute_bleu(df))
+        out.update(compute_bleu(df, args))
         out.update(compute_smooth(df, args))
-        out.update(compute_mauve(df, debug=args.debug))
+        if args.do_mauve:
+            out.update(compute_mauve(df, debug=args.debug))
         
 
         with jsonlines.open(fp, mode='a') as writer:
