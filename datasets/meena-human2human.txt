@@ -133,22 +133,6 @@ Human 2: I prefer to go out. I'm not a good cook haha
 Human 1: Same! Even though I bake, I cannot cook
 Human 2: seems like we share a thing in common, yay!
 
-Human Conversation 9
-Human 1: Hi!
-Human 2: Good afternoon!
-Human 1: How has your week been?
-Human 2: So far so good. It is holiday season. So just chilling
-Human 1: I think I'm getting sick with a cold 😞 So you should chill on my behalf too cause I'm out the game for all of December.
-Human 2: lol Sorry to hear that. Are you planning anything fun for December?
-Human 1: Nothing exciting. I'll be posted up at home for the most part. I did a lot of travelling this year so my budget would have stopped me even if I wasn't sick.
-Human 2: 😂
-Human 1: Do you have big plans?
-Human 2: Yes! I am going to Hawaii! This will be my first time visiting Hawaii. Really excited about it.
-Human 1: I love Hawaii. It's a good place to be. I like going there cause it's humid so I never have to put on lotion.
-Human 2: lol this is the first time I heard from a boy who cares about humidity and lotion. I cannot agree more.
-Human 1: Brooooo!!! It's so important. When I got to California beaches I have to carry 3 litres of lotion for the whole day.
-Human 2: 😂
-
 Human Conversation 10
 Human 1: Hi!
 Human 2: Oh hello. Long time no talk. How's the day going for yuo?
@@ -627,21 +611,6 @@ Human 2: good point. I should ask my teacher if I have to be born with that
 Human 1: Maybe its a little too early to even be thinking about this. Just aim for med school and enjoy the journey!
 Human 2: yeah
 Human 1: What other subjects do you enjoy? Try to keep an open mind!
-
-Human Conversation 37
-Human 1: Hi!
-Human 2: Hi. This is a pleasant surprise.
-Human 1: Haha...thanks! how did you like the gift?
-Human 2: Currently unpacking it I guess. How's your morning?
-Human 1: Hope you like it! Morning is good. Busy finishing up stuff before the holidays.
-Human 2: I think I traveled too much the last couple of months so no holiday for me. But I'm okay with that. Going anywhere exciting?
-Human 1: Yes
-Human 2: Where to?
-Human 1: Hawaii... looking forward to warm beaches.
-Human 2: WOW. Which island? I like Hawaii.
-Human 1: Mauii...Hope I like it too. Never been there before.
-Human 2: I visited Maui. It's my second favourite island I've been to, globally. You should try driving on road to Hana. It's a whole day thing but it's worth it.
-Human 1: Awesome! Thanks for the tip.
 
 Human Conversation 38
 Human 1: Hi!
