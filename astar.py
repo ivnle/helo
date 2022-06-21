@@ -47,8 +47,8 @@ class Arguments:
     #                        "help": "Trunk directory for large files."})
 
 def prepare_otters():
-    ood_test_src = "/home/ivanlee/cyoa/datasets/OTTers/data/out_of_domain/test/source.csv"
-    ood_test_tgt = "/home/ivanlee/cyoa/datasets/OTTers/data/out_of_domain/test/target.csv"
+    ood_test_src = "datasets/OTTers/data/out_of_domain/test/source.csv"
+    ood_test_tgt = "datasets/OTTers/data/out_of_domain/test/target.csv"
 
     df_src = pd.read_csv(ood_test_src, names=['first_utt', "last_utt"], )
     df_src.head()
@@ -138,7 +138,7 @@ def prepare_personachat_dataset(min_conv_len=6, max_conv_len=8):
     return dataset
 
 def prepare_wow_dataset(min_conv_len=6, max_conv_len=8):
-    df = pd.read_json('/home/ivanlee/cyoa/datasets/wow_test_random_split.json')
+    df = pd.read_json('datasets/wow_test_random_split.json')
     conversations_with_meta = df['dialog']
     conversations = []
     for conv in conversations_with_meta:
@@ -165,7 +165,7 @@ def prepare_wow_dataset(min_conv_len=6, max_conv_len=8):
     return dataset
 
 def prepare_meena_dataset(min_conv_len=6, max_conv_len=8):
-    with open('/home/ivanlee/cyoa/datasets/meena-human2human.txt','r') as f:
+    with open('datasets/meena-human2human.txt','r') as f:
         utts = f.read()
         utts = demoji.replace(utts, '')
     utts = utts.split("\n")
