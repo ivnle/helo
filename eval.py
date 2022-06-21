@@ -50,8 +50,10 @@ def compute_mauve(df, do_human=False, debug=False):
 
     if debug:
         pass
-        updated_pred = ['The glory of the empire is forever', 'The otter crows at dawn']
-        updated_ref = ['The glory of the empire is forever', 'The otter crows at dawn']
+        updated_pred = ['The glory of the empire is forever',
+                        'The otter crows at dawn']
+        updated_ref = ['The glory of the empire is forever',
+                       'The otter crows at dawn']
 
     # print(updated_pred[0])
     # print(updated_ref[0])
@@ -65,7 +67,8 @@ def compute_mauve(df, do_human=False, debug=False):
 
 def compute_bleu(df, args):
     if args.experiment == 'otters':
-        df1 = df.groupby('first_utt')['gold_utt'].apply(list).reset_index(name='new')
+        df1 = df.groupby('first_utt')['gold_utt'].apply(
+            list).reset_index(name='new')
         df = df.merge(df1, on='first_utt')
         df = df.drop_duplicates(subset=['first_utt'])
         predictions = df['middle_utt']
@@ -73,9 +76,9 @@ def compute_bleu(df, args):
 
         # print(predictions[0])
         # print(references[0])
-        
+
         predictions = [' '.join(x) for x in predictions]
-        references = [[y[0] for y in x ] for x in references ]
+        references = [[y[0] for y in x] for x in references]
 
     else:
         predictions = df['middle_utt']
@@ -124,7 +127,7 @@ def compute_smooth(df, args, do_human=False):
     ppl_mid = []
     max_ppl_per_conv = []
 
-    for conv_idx, conv in enumerate(conversations):
+    for conv_idx, conv in enumerate(tqdm(conversations)):
         utt_ppls = []
         for utt_idx, utt in enumerate(conv[1:], 1):
             dh_str = SEP_TOK.join(conv[:utt_idx])
@@ -141,6 +144,13 @@ def compute_smooth(df, args, do_human=False):
                                labels=labels, return_dict=True)
             neg_log_like = output['loss'].mean()
             utt_ppl = torch.exp(neg_log_like)
+
+            # if utt_ppl.item() > 500:
+            #     print('utt ppl:', utt_ppl.item())
+            #     print('dh:', repr(dh_str))
+            #     print('utt:', repr(utt))
+            #     print()
+
             utt_ppls.append(utt_ppl.item())
 
             # if utt_ppl.item() > 500 or utt_ppl.item() < 3:
@@ -181,12 +191,13 @@ def compute_smooth(df, args, do_human=False):
     return {'ppl': round(np.mean(conv_ppls), 2),
             'cov': round(np.mean(dataset_cov), 2),
             'max_ppl': round(np.mean(max_ppl_per_conv), 2),
-            # 'smooth_cov': round(np.mean(dataset_smooth_cov), 2),            
+            # 'smooth_cov': round(np.mean(dataset_smooth_cov), 2),
             # 'std': round(np.mean(dataset_std), 2),
             'ppl_first': round(np.mean(ppl_first), 2),
             'ppl_last': round(np.mean(ppl_last), 2),
             # 'ppl_mid': round(np.mean(ppl_mid), 2)
             }
+
 
 def otters(args):
     data = 'otters'
@@ -200,7 +211,7 @@ def otters(args):
         f"gen/{data}_test_samples0:1130_tab_astar_str20_c0.0_top40_seed0.jsonl",
         f"gen/{data}_test_samples0:1130_tab_astar_str40_c0.0_top40_seed0.jsonl",
         f"gen/{data}_test_samples0:1130_tab_astar_str80_c0.0_top40_seed0.jsonl",
-        
+
     ]
     output = {}
     output['files_to_eval'] = files_to_eval
@@ -208,66 +219,160 @@ def otters(args):
     output['do_human'] = False
     return output
 
+
 def bst(args):
     data = 'blended-skill-talk'
+    # files_to_eval = [
+    #     f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+    # ]
+
     files_to_eval = [
-        f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+        [
+            f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_beam_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_beam_prompt_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_astar_str5_c3.0_top40_seed0.jsonl",
+        ],
     ]
+
     output = {}
     output['files_to_eval'] = files_to_eval
-    output['expected_samples'] = 250
+    output['expected_samples'] = 500
     output['do_human'] = True
     return output
 
 
 def wow(args):
     data = 'wow'
+    # files_to_eval = [
+    #     f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+    # ]
+
     files_to_eval = [
-        f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+        [
+            f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_beam_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_beam_prompt_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_astar_str5_c3.0_top40_seed0.jsonl",
+        ],
     ]
+
     output = {}
     output['files_to_eval'] = files_to_eval
-    output['expected_samples'] = 250
+    output['expected_samples'] = 500
     output['do_human'] = True
     return output
 
 
 def empath(args):
     data = 'empath'
+    # files_to_eval = [
+    #     f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+    # ]
+
     files_to_eval = [
-        f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+        [
+            f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+            f"gen/{data}_valid_samples0:159_tab_beam_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+            f"gen/{data}_valid_samples0:159_tab_beam_prompt_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+            f"gen/{data}_valid_samples0:159_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+            f"gen/{data}_valid_samples0:159_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+            f"gen/{data}_valid_samples0:159_tab_astar_str5_c3.0_top40_seed0.jsonl",
+        ],
     ]
     output = {}
     output['files_to_eval'] = files_to_eval
-    output['expected_samples'] = 134
+    output['expected_samples'] = 134 + 159
     output['do_human'] = True
     return output
 
 
 def persona(args):
     data = 'persona'
+    # files_to_eval = [
+    #     f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+    #     f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+    # ]
     files_to_eval = [
-        f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+        [
+            f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_beam_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_beam_prompt_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_astar_str15_c0.0_top40_seed0.jsonl",
+        ],
+        [
+            f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+            f"gen/{data}_test_samples250:500_tab_astar_str5_c3.0_top40_seed0.jsonl",
+        ],
     ]
     output = {}
     output['files_to_eval'] = files_to_eval
-    output['expected_samples'] = 250
+    output['expected_samples'] = 500
     output['do_human'] = True
     return output
 
@@ -283,23 +388,38 @@ def meena(args):
     ]
     output = {}
     output['files_to_eval'] = files_to_eval
-    output['expected_samples'] = 250
+    output['expected_samples'] = 80
     output['do_human'] = True
     return output
 
 
 def combined(args):
-    data = 'combined'
+    models = ['blended-skill-talk', 'meena', 'empath', 'persona', 'wow']
+    models_no_meena = ['blended-skill-talk', 'persona', 'wow']
     files_to_eval = [
-        f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl",
-        f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl",
+        [f"gen/{data}_test_samples0:250_tab_beam_seed0.jsonl" for data in models] +
+        [f"gen/{data}_test_samples250:500_tab_beam_seed0.jsonl" for data in models_no_meena] + 
+        [f"gen/empath_valid_samples0:159_tab_beam_seed0.jsonl"],
+
+        [f"gen/{data}_test_samples0:250_tab_beam_prompt_seed0.jsonl" for data in models] +
+        [f"gen/{data}_test_samples250:500_tab_beam_prompt_seed0.jsonl" for data in models_no_meena] +
+        [f"gen/empath_valid_samples0:159_tab_beam_prompt_seed0.jsonl"],
+
+        [f"gen/{data}_test_samples0:250_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl" for data in models] +
+        [f"gen/{data}_test_samples250:500_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl" for data in models_no_meena] +
+        [f"gen/empath_valid_samples0:159_tab_cosine_str20_c3.0_top40_extend_seed0.jsonl"],
+
+        [f"gen/{data}_test_samples0:250_tab_astar_str15_c0.0_top40_seed0.jsonl" for data in models] +
+        [f"gen/{data}_test_samples250:500_tab_astar_str15_c0.0_top40_seed0.jsonl" for data in models_no_meena] + 
+        [f"gen/empath_valid_samples0:159_tab_astar_str15_c0.0_top40_seed0.jsonl"],
+
+        [f"gen/{data}_test_samples0:250_tab_astar_str5_c3.0_top40_seed0.jsonl" for data in models] +
+        [f"gen/{data}_test_samples250:500_tab_astar_str5_c3.0_top40_seed0.jsonl" for data in models_no_meena] + 
+        [f"gen/empath_valid_samples0:159_tab_astar_str5_c3.0_top40_seed0.jsonl"],
     ]
     output = {}
     output['files_to_eval'] = files_to_eval
-    output['expected_samples'] = 964
+    output['expected_samples'] = 500*3 + 80 + 134 + 159
     output['do_human'] = True
     return output
 
@@ -396,13 +516,25 @@ def main():
 
     # results = []
     for i, f in enumerate(tqdm(files_to_eval)):
-        df = pd.read_json(f, lines=True)
+        # if f is a list
+        if isinstance(f, list):
+            # assert all files in f exist
+            for ff in f:
+                assert os.path.exists(ff) , 'File does not exist: {}'.format(ff)
+
+            # read the files in the list and join them
+            df = pd.concat([pd.read_json(ff, lines=True) for ff in f])
+        else:
+            df = pd.read_json(f, lines=True)
+
         if len(df) != expected_samples:
             logger.warning('WARNING: {} has {} samples'.format(f, len(df)))
 
         if do_human and i == 0:
             # print('human:', f.split('_')[0])
             out_human = {'file': 'human', 'bleu_score': 100}
+            out_human.update({'ppl_model': args.model})
+            out_human.update({'examples': len(df)})
             out_human.update(compute_smooth(df, args, do_human=True))
             if args.do_mauve:
                 out_human.update({'mauve': 1})
@@ -411,11 +543,12 @@ def main():
                 writer.write(out_human)
 
         out = {'file': f}
+        out.update({'ppl_model': args.model})
+        out.update({'examples': len(df)})
         out.update(compute_bleu(df, args))
         out.update(compute_smooth(df, args))
         if args.do_mauve:
             out.update(compute_mauve(df, debug=args.debug))
-        
 
         with jsonlines.open(fp, mode='a') as writer:
             writer.write(out)
