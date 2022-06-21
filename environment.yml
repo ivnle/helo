@@ -1,4 +1,4 @@
-name: cyoa
+name: helo
 channels:
   - pytorch
   - defaults
